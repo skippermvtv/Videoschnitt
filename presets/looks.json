@@ -1,10 +1,201 @@
 [
-  {"id": "none",        "name": "Kein Look",      "effects": []},
-  {"id": "retro_vhs",   "name": "Retro VHS",      "effects": [["vhs", 70], ["rgb_split", 30], ["vignette", 40]]},
-  {"id": "cinematic",   "name": "Cinematic",      "effects": [["cinematic", 60], ["vignette", 50], ["grain", 20]]},
-  {"id": "glitch_intro","name": "Glitch Intro (erste 3 s)", "effects": [["glitch", 80, 0, 3], ["flicker", 50, 0, 3]]},
-  {"id": "glitch_all",  "name": "Dauer-Glitch",   "effects": [["glitch", 60], ["rgb_split", 40], ["scanlines", 40]]},
-  {"id": "horror",      "name": "Horror / Metal", "effects": [["bw", 80], ["contrast", 60], ["grain", 45], ["vignette", 70], ["shake", 25]]},
-  {"id": "tiktok_pop",  "name": "TikTok Pop",     "effects": [["saturation", 65], ["sharpen", 40], ["zoom_pulse", 40]]},
-  {"id": "neon",        "name": "Neon Nacht",     "effects": [["neon", 70], ["vignette", 40], ["rgb_split", 20]]}
+ {
+  "id": "none",
+  "name": "Kein Look",
+  "effects": []
+ },
+ {
+  "id": "retro_vhs",
+  "name": "Retro VHS",
+  "effects": [
+   [
+    "vhs",
+    70
+   ],
+   [
+    "rgb_split",
+    30
+   ],
+   [
+    "vignette",
+    40
+   ]
+  ]
+ },
+ {
+  "id": "cinematic",
+  "name": "Cinematic",
+  "effects": [
+   [
+    "cinematic",
+    60
+   ],
+   [
+    "vignette",
+    50
+   ],
+   [
+    "grain",
+    20
+   ]
+  ]
+ },
+ {
+  "id": "glitch_intro",
+  "name": "Glitch Intro (erste 3 s)",
+  "effects": [
+   [
+    "glitch",
+    80,
+    0,
+    3
+   ],
+   [
+    "flicker",
+    50,
+    0,
+    3
+   ]
+  ]
+ },
+ {
+  "id": "glitch_all",
+  "name": "Dauer-Glitch",
+  "effects": [
+   [
+    "glitch",
+    60
+   ],
+   [
+    "rgb_split",
+    40
+   ],
+   [
+    "scanlines",
+    40
+   ]
+  ]
+ },
+ {
+  "id": "horror",
+  "name": "Horror / Metal",
+  "effects": [
+   [
+    "bw",
+    80
+   ],
+   [
+    "contrast",
+    60
+   ],
+   [
+    "grain",
+    45
+   ],
+   [
+    "vignette",
+    70
+   ],
+   [
+    "shake",
+    25
+   ]
+  ]
+ },
+ {
+  "id": "tiktok_pop",
+  "name": "TikTok Pop",
+  "effects": [
+   [
+    "saturation",
+    65
+   ],
+   [
+    "sharpen",
+    40
+   ],
+   [
+    "zoom_pulse",
+    40
+   ]
+  ]
+ },
+ {
+  "id": "neon",
+  "name": "Neon Nacht",
+  "effects": [
+   [
+    "neon",
+    70
+   ],
+   [
+    "vignette",
+    40
+   ],
+   [
+    "rgb_split",
+    20
+   ]
+  ]
+ },
+ {
+  "id": "comic",
+  "name": "Comic",
+  "effects": [
+   [
+    "comic",
+    60
+   ],
+   [
+    "posterize",
+    30
+   ]
+  ]
+ },
+ {
+  "id": "night_vision",
+  "name": "Nachtsicht",
+  "effects": [
+   [
+    "night_vision",
+    80
+   ]
+  ]
+ },
+ {
+  "id": "dream",
+  "name": "Traum",
+  "effects": [
+   [
+    "dream_glow",
+    55
+   ],
+   [
+    "saturation",
+    30
+   ],
+   [
+    "vignette",
+    30
+   ]
+  ]
+ },
+ {
+  "id": "synth",
+  "name": "Synthwave",
+  "effects": [
+   [
+    "duotone",
+    70
+   ],
+   [
+    "scanlines",
+    35
+   ],
+   [
+    "rgb_split",
+    25
+   ]
+  ]
+ }
 ]

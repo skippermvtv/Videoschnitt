@@ -61,6 +61,18 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           python tests/test_effects_ffmpeg.py
+          python tests/test_font.py
+          python tests/test_grade.py
+          python tests/test_audio.py "$env:RUNNER_TEMP"
+          python tests/timeline_logic_check.py
+          python tests/test_history.py
+          python tests/test_release.py
+          python tests/test_diagnostics.py
+          python tests/test_preview.py "$env:RUNNER_TEMP"
+          python tests/test_motion.py "$env:RUNNER_TEMP"
+          python tests/test_subtitles.py "$env:RUNNER_TEMP"
+          python tests/test_overlay.py "$env:RUNNER_TEMP"
+          python tests/test_transitions.py "$env:RUNNER_TEMP"
           python tests/test_export.py "$env:RUNNER_TEMP"
           python tests/ui_smoke.py ui_smoke.png
 
@@ -68,7 +80,10 @@ jobs:
         shell: pwsh
         run: |
           pyinstaller --noconfirm --clean --windowed --name ClipForge `
+            --icon "assets/icon.ico" `
             --add-data "presets;presets" `
+            --add-data "assets;assets" `
+            --add-data "THIRD_PARTY.txt;." `
             --add-data "fonts;fonts" `
             --add-data "vendor/ffmpeg;vendor/ffmpeg" `
             main.py
@@ -80,6 +95,18 @@ jobs:
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
           & $iscc "/DMyAppVersion=$env:APP_VERSION" installer.iss
           Get-ChildItem installer_output
+
+      - name: Setup.exe signieren (nur wenn ein Zertifikat hinterlegt ist)
+        if: env.SIGN_PFX_BASE64 != ''
+        shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+        run: |
+          [IO.File]::WriteAllBytes("sign.pfx", [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
+          $st = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
+          & $st.FullName sign /f sign.pfx /p $env:SIGN_PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 installer_output/ClipForge-Setup.exe
+          Remove-Item sign.pfx
 
       - name: Setup.exe als Download bereitstellen
         uses: actions/upload-artifact@v4

@@ -5,12 +5,28 @@ FFmpeg (https://ffmpeg.org)
   ClipForge liefert eine FFmpeg-Windows-Version mit (GPL-Build von BtbN:
   https://github.com/BtbN/FFmpeg-Builds). FFmpeg steht unter der GPL/LGPL.
   Lizenztexte und Quellcode: https://ffmpeg.org/legal.html
+  Den Quellcode des mitgelieferten Builds stellt BtbN bereit (siehe Link oben, Release-Seite des Builds).
   FFmpeg läuft als eigenständiges Programm (ffmpeg.exe / ffprobe.exe) und wird von ClipForge aufgerufen.
 
 Qt / PySide6 (https://www.qt.io, https://pyside.org)
   Oberfläche, Vorschau-Player. Lizenz: LGPLv3.
   https://www.qt.io/licensing/
 
+fontTools (https://github.com/fonttools/fonttools) – MIT-Lizenz
+  Prüft, ob eine Schrift alle Zeichen eines Textes enthält.
+
 Python (https://www.python.org) – PSF-Lizenz
 PyInstaller (https://pyinstaller.org) – GPL mit Ausnahme für gebündelte Programme
 Inno Setup (https://jrsoftware.org) – Installer-Erstellung
+
+Optional (wird NICHT mitgeliefert, nur auf Wunsch vom Benutzer selbst eingerichtet):
+  whisper.cpp (https://github.com/ggml-org/whisper.cpp) – MIT-Lizenz, für automatische Untertitel
+    (wird auf Wunsch von GitHub heruntergeladen; die Sprachmodelle stammen von https://huggingface.co/ggml-org/whisper.cpp)
+  Whisper-Sprachmodelle (OpenAI) – MIT-Lizenz
+
+Schrift "ClipForge Metal" (fonts/ClipForgeMetal.ttf)
+  Nachgezeichnet nach der Vorlage "FATE Metal Font". Die Rechte an der Vorlage und an der
+  abgeleiteten Schrift liegen beim Urheber der Vorlage; weitergeben nur mit dessen Erlaubnis.
+
+Symbol / Logo (assets/)
+  Das Programmsymbol stammt vom Projektinhaber und darf nur mit dessen Erlaubnis weiterverwendet werden.

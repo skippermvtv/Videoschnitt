@@ -20,6 +20,7 @@ OutputBaseFilename=ClipForge-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=assets\icon.ico
 ArchitecturesInstallIn64BitMode=x64compatible
 ; Ohne Administratorrechte installierbar (nur für den aktuellen Benutzer), auf Wunsch für alle
 PrivilegesRequired=lowest
@@ -37,6 +38,7 @@ Name: "desktopicon"; Description: "Verknüpfung auf dem Desktop erstellen"; Grou
 [Files]
 Source: "dist\ClipForge\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "THIRD_PARTY.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\ClipForge.exe"

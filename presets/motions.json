@@ -1,0 +1,224 @@
+[
+ {
+  "id": "zoom_in",
+  "name": "Langsam hineinzoomen",
+  "keyframes": [
+   {
+    "t": 0,
+    "zoom": 100,
+    "x": 0,
+    "y": 0,
+    "rot": 0
+   },
+   {
+    "t": 1,
+    "zoom": 125,
+    "x": 0,
+    "y": 0,
+    "rot": 0
+   }
+  ]
+ },
+ {
+  "id": "zoom_out",
+  "name": "Langsam herauszoomen",
+  "keyframes": [
+   {
+    "t": 0,
+    "zoom": 125,
+    "x": 0,
+    "y": 0,
+    "rot": 0
+   },
+   {
+    "t": 1,
+    "zoom": 100,
+    "x": 0,
+    "y": 0,
+    "rot": 0
+   }
+  ]
+ },
+ {
+  "id": "pan_right",
+  "name": "Schwenk nach rechts",
+  "keyframes": [
+   {
+    "t": 0,
+    "zoom": 120,
+    "x": -100,
+    "y": 0,
+    "rot": 0
+   },
+   {
+    "t": 1,
+    "zoom": 120,
+    "x": 100,
+    "y": 0,
+    "rot": 0
+   }
+  ]
+ },
+ {
+  "id": "pan_left",
+  "name": "Schwenk nach links",
+  "keyframes": [
+   {
+    "t": 0,
+    "zoom": 120,
+    "x": 100,
+    "y": 0,
+    "rot": 0
+   },
+   {
+    "t": 1,
+    "zoom": 120,
+    "x": -100,
+    "y": 0,
+    "rot": 0
+   }
+  ]
+ },
+ {
+  "id": "tilt_up",
+  "name": "Neigen nach oben",
+  "keyframes": [
+   {
+    "t": 0,
+    "zoom": 120,
+    "x": 0,
+    "y": 100,
+    "rot": 0
+   },
+   {
+    "t": 1,
+    "zoom": 120,
+    "x": 0,
+    "y": -100,
+    "rot": 0
+   }
+  ]
+ },
+ {
+  "id": "ken_burns",
+  "name": "Ken Burns (Zoom + Schwenk)",
+  "keyframes": [
+   {
+    "t": 0,
+    "zoom": 100,
+    "x": -60,
+    "y": -30,
+    "rot": 0
+   },
+   {
+    "t": 1,
+    "zoom": 135,
+    "x": 60,
+    "y": 30,
+    "rot": 0
+   }
+  ]
+ },
+ {
+  "id": "punch_in",
+  "name": "Punch-In (schneller Zoom)",
+  "keyframes": [
+   {
+    "t": 0,
+    "zoom": 100,
+    "x": 0,
+    "y": 0,
+    "rot": 0
+   },
+   {
+    "t": 0.15,
+    "zoom": 118,
+    "x": 0,
+    "y": 0,
+    "rot": 0
+   },
+   {
+    "t": 1,
+    "zoom": 122,
+    "x": 0,
+    "y": 0,
+    "rot": 0
+   }
+  ]
+ },
+ {
+  "id": "handheld",
+  "name": "Handkamera (leichtes Wackeln)",
+  "keyframes": [
+   {
+    "t": 0,
+    "zoom": 108,
+    "x": -30,
+    "y": 10,
+    "rot": -0.6
+   },
+   {
+    "t": 0.2,
+    "zoom": 108,
+    "x": 25,
+    "y": -15,
+    "rot": 0.5
+   },
+   {
+    "t": 0.4,
+    "zoom": 108,
+    "x": -15,
+    "y": 20,
+    "rot": -0.4
+   },
+   {
+    "t": 0.6,
+    "zoom": 108,
+    "x": 30,
+    "y": -5,
+    "rot": 0.7
+   },
+   {
+    "t": 0.8,
+    "zoom": 108,
+    "x": -25,
+    "y": -18,
+    "rot": -0.5
+   },
+   {
+    "t": 1,
+    "zoom": 108,
+    "x": 10,
+    "y": 8,
+    "rot": 0.3
+   }
+  ]
+ },
+ {
+  "id": "spin_in",
+  "name": "Eindrehen",
+  "keyframes": [
+   {
+    "t": 0,
+    "zoom": 160,
+    "x": 0,
+    "y": 0,
+    "rot": -12
+   },
+   {
+    "t": 0.25,
+    "zoom": 100,
+    "x": 0,
+    "y": 0,
+    "rot": 0
+   },
+   {
+    "t": 1,
+    "zoom": 100,
+    "x": 0,
+    "y": 0,
+    "rot": 0
+   }
+  ]
+ }
+]

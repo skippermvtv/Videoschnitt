@@ -243,6 +243,65 @@ def categories() -> dict[str, list[Effect]]:
     return out
 
 
+# ------------------------------------------------------------ neu in 0.8
+@effect("posterize", "Posterisieren (Comic-Farben)", "Farbe", 50)
+def _posterize(i, o, k, c):
+    step = int(10 + 70 * k)
+    expr = f"trunc(val/{step})*{step}"
+    return chain(i, o, f"lutrgb=r='{expr}':g='{expr}':b='{expr}'")
+
+
+@effect("duotone", "Duotone (Orange / Blau)", "Farbe", 60)
+def _duotone(i, o, k, c):
+    return chain(i, o, f"hue=s={n(1 - 0.9 * k)},colorbalance=rs={n(-0.5 * k)}:bs={n(0.55 * k)}:"
+                       f"rm={n(0.1 * k)}:bm={n(0.1 * k)}:rh={n(0.6 * k)}:bh={n(-0.5 * k)}")
+
+
+@effect("night_vision", "Nachtsicht (grün)", "Farbe", 80)
+def _night(i, o, k, c):
+    return chain(i, o, f"format=gray,format=rgb24,eq=brightness={n(0.08 * k)}:contrast={n(1 + 0.5 * k)},"
+                       f"colorchannelmixer=rr=0.15:gg=1.0:bb=0.2,noise=alls={int(10 + 30 * k)}:allf=t,"
+                       f"vignette=angle={n(1.2 - 0.5 * k)}:mode=forward")
+
+
+@effect("hue_cycle", "Regenbogen-Farbwechsel", "Farbe", 50)
+def _hue_cycle(i, o, k, c):
+    return chain(i, o, f"hue=h='t*{int(30 + 150 * k)}'")
+
+
+@effect("comic", "Comic-Kontur", "Farbe", 60)
+def _comic(i, o, k, c):
+    return chain(i, o, f"edgedetect=mode=colormix:low={n(0.12 - 0.08 * k)}:high={n(0.30 - 0.1 * k)},"
+                       f"eq=saturation={n(1.2 + 0.8 * k)}:contrast={n(1.05 + 0.2 * k)}")
+
+
+@effect("dream_glow", "Traum-Glühen", "Farbe", 50)
+def _glow(i, o, k, c):
+    a, b, g = f"{o}_a", f"{o}_b", f"{o}_g"
+    return (f"[{i}]split[{a}][{b}];[{b}]gblur=sigma={n(6 + 24 * k, 1)}[{g}];"
+            f"[{a}][{g}]blend=all_mode=screen:all_opacity={n(0.25 + 0.5 * k)}[{o}]")
+
+
+@effect("echo_trail", "Nachzieh-Spur (Echo)", "Bewegung", 50)
+def _echo(i, o, k, c):
+    frames = int(2 + round(6 * k))
+    return chain(i, o, f"tmix=frames={frames}")
+
+
+@effect("fisheye", "Fischauge", "Bewegung", 50)
+def _fisheye(i, o, k, c):
+    return chain(i, o, f"lenscorrection=k1={n(-0.35 * k)}:k2={n(-0.12 * k)}")
+
+
+@effect("dutch_tilt", "Schiefe Kamera (Pendeln)", "Bewegung", 50)
+def _dutch(i, o, k, c):
+    deg = 2 + 8 * k
+    z = 1.0 + 0.04 + 0.012 * deg
+    w, h = even(c.width), even(c.height)
+    return chain(i, o, f"rotate=a='{n(deg)}*PI/180*sin(t*1.2)':ow=iw:oh=ih:c=black,"
+                       f"scale=w={even(c.width * z)}:h={even(c.height * z)},crop={w}:{h}")
+
+
 def build_graph(effects: list[dict], in_label: str, out_label: str, ctx: Ctx, prefix: str = "fx") -> list[str]:
     """effects: [{"id": "glitch", "intensity": 70, "start": 0, "end": 3}, …]
 

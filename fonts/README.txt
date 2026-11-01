@@ -1,12 +1,19 @@
-Eigene Schriften für Text-Einblendungen
-=======================================
+Schriften für Text-Einblendungen
+================================
 
-Lege hier .ttf- oder .otf-Dateien ab. Sie werden beim Bauen in die Setup.exe eingebaut
-und tauchen im Programm unter  Text -> Schrift  auf. Die erste Schrift (alphabetisch)
-wird für neue Texte vorausgewählt und für den "ClipForge"-Schriftzug oben links benutzt.
+ClipForgeMetal.ttf  (mitgeliefert)
+  Gothic-/Metal-Schrift mit Drips, nachgezeichnet nach der Vorlage "FATE Metal Font".
+  Enthalten: A–Z, a–z, Ä Ö Ü ä ö ü, Ziffern 0–9, Leerzeichen und die Zeichen . , : ; ! ? - ' " + / ( ) %
+  J, L, Y und das kleine l waren in der Vorlage nicht vorhanden und wurden aus vorhandenen
+  Buchstaben nachgebaut (L aus I + E, J aus I + j, Y aus y, l aus I).
+  NICHT enthalten: z. B. @ € & # und weitere Sonderzeichen. Das Programm warnt, wenn ein Text
+  solche Zeichen enthält (sie blieben sonst im Video leer) – dann die Standardschrift wählen.
 
-Zusätzlich kann jeder Nutzer im Programm über "Schrift hinzufügen ..." eigene Schriften
-laden (sie werden unter %APPDATA%\ClipForge\fonts gespeichert).
+Eigene Schriften
+  Lege weitere .ttf- oder .otf-Dateien hier ab (oder im Programm: Text -> "Schrift hinzufügen ...").
+  Die erste Schrift (alphabetisch) ist für neue Texte vorausgewählt und wird für den
+  "ClipForge"-Schriftzug oben links benutzt.
+  Liegt hier auch die Original-Datei "FATE Metal Font.ttf", steht sie ebenfalls zur Auswahl.
 
-WICHTIG: Packe nur Schriften hinein, die du weitergeben darfst (Lizenz prüfen!).
-Ist dein GitHub-Repository öffentlich, kann jeder die Datei herunterladen.
+WICHTIG: Nur Schriften verwenden, die du weitergeben darfst (Lizenz prüfen!).
+Ist dein GitHub-Repository öffentlich, kann jeder diese Dateien herunterladen.

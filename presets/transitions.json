@@ -1,0 +1,142 @@
+[
+ {
+  "id": "fade",
+  "name": "Überblenden",
+  "xfade": "fade"
+ },
+ {
+  "id": "dissolve",
+  "name": "Auflösen (Körnung)",
+  "xfade": "dissolve"
+ },
+ {
+  "id": "fadeblack",
+  "name": "Über Schwarz",
+  "xfade": "fadeblack"
+ },
+ {
+  "id": "fadewhite",
+  "name": "Über Weiß",
+  "xfade": "fadewhite"
+ },
+ {
+  "id": "fadegrays",
+  "name": "Über Grau",
+  "xfade": "fadegrays"
+ },
+ {
+  "id": "wipeleft",
+  "name": "Wischen nach links",
+  "xfade": "wipeleft"
+ },
+ {
+  "id": "wiperight",
+  "name": "Wischen nach rechts",
+  "xfade": "wiperight"
+ },
+ {
+  "id": "wipeup",
+  "name": "Wischen nach oben",
+  "xfade": "wipeup"
+ },
+ {
+  "id": "wipedown",
+  "name": "Wischen nach unten",
+  "xfade": "wipedown"
+ },
+ {
+  "id": "slideleft",
+  "name": "Schieben nach links",
+  "xfade": "slideleft"
+ },
+ {
+  "id": "slideright",
+  "name": "Schieben nach rechts",
+  "xfade": "slideright"
+ },
+ {
+  "id": "slideup",
+  "name": "Schieben nach oben",
+  "xfade": "slideup"
+ },
+ {
+  "id": "slidedown",
+  "name": "Schieben nach unten",
+  "xfade": "slidedown"
+ },
+ {
+  "id": "coverleft",
+  "name": "Überdecken links",
+  "xfade": "coverleft"
+ },
+ {
+  "id": "revealright",
+  "name": "Aufdecken rechts",
+  "xfade": "revealright"
+ },
+ {
+  "id": "circleopen",
+  "name": "Kreis öffnen",
+  "xfade": "circleopen"
+ },
+ {
+  "id": "circleclose",
+  "name": "Kreis schließen",
+  "xfade": "circleclose"
+ },
+ {
+  "id": "vertopen",
+  "name": "Vorhang öffnen (senkrecht)",
+  "xfade": "vertopen"
+ },
+ {
+  "id": "horzopen",
+  "name": "Vorhang öffnen (waagerecht)",
+  "xfade": "horzopen"
+ },
+ {
+  "id": "radial",
+  "name": "Radial (Uhrzeiger)",
+  "xfade": "radial"
+ },
+ {
+  "id": "pixelize",
+  "name": "Pixel",
+  "xfade": "pixelize"
+ },
+ {
+  "id": "zoomin",
+  "name": "Zoom hinein",
+  "xfade": "zoomin"
+ },
+ {
+  "id": "hblur",
+  "name": "Wisch-Unschärfe",
+  "xfade": "hblur"
+ },
+ {
+  "id": "squeezev",
+  "name": "Zusammenquetschen",
+  "xfade": "squeezev"
+ },
+ {
+  "id": "diagtl",
+  "name": "Diagonal",
+  "xfade": "diagtl"
+ },
+ {
+  "id": "hlslice",
+  "name": "Streifen",
+  "xfade": "hlslice"
+ },
+ {
+  "id": "hlwind",
+  "name": "Wind",
+  "xfade": "hlwind"
+ },
+ {
+  "id": "smoothleft",
+  "name": "Weich nach links",
+  "xfade": "smoothleft"
+ }
+]

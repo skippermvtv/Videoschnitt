@@ -5,7 +5,7 @@ siehe .github/workflows/build.yml.
 """
 
 APP_NAME = "ClipForge"
-VERSION = "0.1.0"
+VERSION = "1.1.0"
 
 # >>> HIER anpassen: dein GitHub-Benutzername und der Name deines Repositories <<<
 GITHUB_REPO = "DEIN-BENUTZERNAME/clipforge"
