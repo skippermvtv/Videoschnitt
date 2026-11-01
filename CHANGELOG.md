@@ -1,5 +1,9 @@
 # Änderungen
 
+## 1.1.2
+- Test-Korrektur: Eine Textausgabe mit Pfeil-Zeichen ließ sich in der Windows-Konsole des Build-Servers nicht ausgeben und brach den Lauf ab. Der Workflow nutzt jetzt durchgehend UTF-8 (`PYTHONUTF8`).
+- Der Test „Grafikkarte nutzen“ lief bereits durch; auf dem Build-Server wird dabei die CPU genutzt (keine Grafikkarte vorhanden).
+
 ## 1.1.1
 - **Wichtige Korrektur:** Das Qt-Zusatzpaket `PySide6-Addons` fehlte in `requirements.txt`. Ohne es startet das Programm nicht (Fehler „No module named PySide6.QtMultimedia“). Jetzt enthalten.
 - Der Test-Lauf auf GitHub installiert numpy und Pillow (neue Datei `requirements-dev.txt`) und bricht beim ersten fehlgeschlagenen Test sofort ab, mit dem Namen des Tests. Bisher wurden Fehler mittendrin übersehen.

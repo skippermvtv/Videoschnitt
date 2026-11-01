@@ -12,6 +12,7 @@ from PIL import Image
 tmp = Path(sys.argv[1] if len(sys.argv) > 1 else tempfile.mkdtemp())
 os.environ["APPDATA"] = str(tmp / "appdata")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from app import paths  # noqa: E402
 from app.core import exporter, preview, settings  # noqa: E402
 from app.core.project import Clip, Project, probe  # noqa: E402
 from app.paths import find_binary  # noqa: E402
@@ -94,7 +95,7 @@ def main() -> int:
     cmd, total, _ = exporter.build_command(p, str(out), use_hw=True)
     exporter.run(cmd, total)
     assert abs(probe(str(out)).duration - 8.0) < 0.4
-    print(f"OK  Export mit 'Grafikkarte nutzen' (Encoder: {enc or 'keiner gefunden → libx264'})")
+    print(f"OK  Export mit 'Grafikkarte nutzen' (Encoder: {enc or 'keiner gefunden, libx264'})")
 
     # 5) Rückwärts-Schutz
     p.clips[0].reverse = True; p.clips[0].duration = 500.0; p.clips[0].out_pt = 300.0
@@ -111,7 +112,11 @@ def main() -> int:
     assert exporter.format_eta(120, 0.25) == "noch ca. 6:00 min"
     print("OK  Restzeit-Anzeige")
 
-    # 7) Einstellungen
+    # 7) Einstellungen (frischer Start: alte Einstellungsdatei aus früheren Läufen entfernen)
+    try:
+        (paths.user_dir() / "settings.json").unlink()
+    except OSError:
+        pass
     assert settings.load()["preview_height"] == 360 and settings.load()["hw_encode"] is False
     settings.save({"preview_height": 540, "hw_encode": True, "unbekannt": 1})
     s = settings.load(); assert s["preview_height"] == 540 and s["hw_encode"] is True and "unbekannt" not in s

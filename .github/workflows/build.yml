@@ -59,6 +59,7 @@ jobs:
         shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: "1"
         run: |
           $ErrorActionPreference = "Stop"
           # Jeder Test muss bestehen; bei einem Fehler bricht der Lauf sofort ab und nennt den Test.
