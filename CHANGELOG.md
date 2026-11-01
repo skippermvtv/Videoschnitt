@@ -1,5 +1,8 @@
 # Änderungen
 
+## 1.1.3
+- Test-Korrektur: Die Attrappe für die Spracherkennung im Untertitel-Test läuft jetzt auch unter Windows (bisher nur Linux). Das Programm selbst ist unverändert.
+
 ## 1.1.2
 - Test-Korrektur: Eine Textausgabe mit Pfeil-Zeichen ließ sich in der Windows-Konsole des Build-Servers nicht ausgeben und brach den Lauf ab. Der Workflow nutzt jetzt durchgehend UTF-8 (`PYTHONUTF8`).
 - Der Test „Grafikkarte nutzen“ lief bereits durch; auf dem Build-Server wird dabei die CPU genutzt (keine Grafikkarte vorhanden).

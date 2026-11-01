@@ -106,10 +106,23 @@ def main() -> int:
     # Spracherkennung: Attrappe statt whisper.cpp
     assert subtitles.find_whisper() is None
     wd = subtitles.whisper_dir()
-    exe = wd / "whisper-cli"
-    exe.write_text('#!/bin/sh\nwhile [ $# -gt 0 ]; do case "$1" in -of) OF="$2";; esac; shift; done\n'
-                   'printf "1\\n00:00:00,500 --> 00:00:02,000\\nHallo aus der Attrappe\\n\\n" > "$OF.srt"\n')
-    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    # Die Attrappe ist ein kleines Python-Skript; ein Aufrufer-Skript startet es (Linux: sh, Windows: .bat)
+    fake = wd / "fake_whisper.py"
+    fake.write_text(
+        "import sys\n"
+        "a = sys.argv[1:]\n"
+        "of = a[a.index('-of') + 1]\n"
+        "open(of + '.srt', 'w', encoding='utf-8').write('1\\n00:00:00,500 --> 00:00:02,000\\nHallo aus der Attrappe\\n\\n')\n",
+        encoding="utf-8")
+    if os.name == "nt":
+        exe = wd / "whisper-cli.bat"
+        exe.write_text(f'@"{sys.executable}" "{fake}" %*\r\n', encoding="ascii")
+        # .bat wird vom Programm nicht automatisch gesucht (nur .exe): Fundort für den Test festlegen
+        subtitles.find_whisper = lambda: (str(exe), str(wd / "ggml-base.bin"))
+    else:
+        exe = wd / "whisper-cli"
+        exe.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{fake}" "$@"\n')
+        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
     (wd / "ggml-base.bin").write_bytes(b"x" * 10)
     assert subtitles.find_whisper() is not None
     p = project()
