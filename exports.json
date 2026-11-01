@@ -1,0 +1,7 @@
+[
+  {"id": "youtube_1080p",  "name": "YouTube 1080p (gute Qualität)",  "crf": 18, "x264_preset": "medium", "audio_kbps": 192},
+  {"id": "youtube_4k",     "name": "YouTube 4K (hohe Qualität)",     "crf": 17, "x264_preset": "medium", "audio_kbps": 256},
+  {"id": "vertical_1080",  "name": "Shorts / TikTok / Reels",        "crf": 19, "x264_preset": "medium", "audio_kbps": 192},
+  {"id": "square_1080",    "name": "Instagram Feed",                 "crf": 20, "x264_preset": "medium", "audio_kbps": 160},
+  {"id": "fast_draft",     "name": "Schneller Entwurf (kleine Datei)","crf": 28, "x264_preset": "veryfast", "audio_kbps": 128}
+]

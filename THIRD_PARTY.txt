@@ -1,0 +1,16 @@
+Drittanbieter-Software in ClipForge
+===================================
+
+FFmpeg (https://ffmpeg.org)
+  ClipForge liefert eine FFmpeg-Windows-Version mit (GPL-Build von BtbN:
+  https://github.com/BtbN/FFmpeg-Builds). FFmpeg steht unter der GPL/LGPL.
+  Lizenztexte und Quellcode: https://ffmpeg.org/legal.html
+  FFmpeg läuft als eigenständiges Programm (ffmpeg.exe / ffprobe.exe) und wird von ClipForge aufgerufen.
+
+Qt / PySide6 (https://www.qt.io, https://pyside.org)
+  Oberfläche, Vorschau-Player. Lizenz: LGPLv3.
+  https://www.qt.io/licensing/
+
+Python (https://www.python.org) – PSF-Lizenz
+PyInstaller (https://pyinstaller.org) – GPL mit Ausnahme für gebündelte Programme
+Inno Setup (https://jrsoftware.org) – Installer-Erstellung

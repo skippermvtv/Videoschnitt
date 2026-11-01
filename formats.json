@@ -1,0 +1,9 @@
+[
+  {"id": "youtube_16_9",  "name": "YouTube – Querformat 16:9 (1920×1080)", "width": 1920, "height": 1080, "fps": 30, "layout": "fit",  "default_export": "youtube_1080p"},
+  {"id": "youtube_4k",    "name": "YouTube – 4K 16:9 (3840×2160)",         "width": 3840, "height": 2160, "fps": 30, "layout": "fit",  "default_export": "youtube_4k"},
+  {"id": "shorts",        "name": "YouTube Shorts – Hochformat 9:16",      "width": 1080, "height": 1920, "fps": 30, "layout": "blur", "default_export": "vertical_1080"},
+  {"id": "tiktok",        "name": "TikTok – Hochformat 9:16",              "width": 1080, "height": 1920, "fps": 30, "layout": "blur", "default_export": "vertical_1080"},
+  {"id": "reels",         "name": "Instagram Reels – Hochformat 9:16",     "width": 1080, "height": 1920, "fps": 30, "layout": "blur", "default_export": "vertical_1080"},
+  {"id": "insta_square",  "name": "Instagram – Quadrat 1:1 (1080×1080)",   "width": 1080, "height": 1080, "fps": 30, "layout": "blur", "default_export": "square_1080"},
+  {"id": "insta_portrait","name": "Instagram – Porträt 4:5 (1080×1350)",   "width": 1080, "height": 1350, "fps": 30, "layout": "blur", "default_export": "square_1080"}
+]
