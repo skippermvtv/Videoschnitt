@@ -1,5 +1,9 @@
 # Änderungen
 
+## 1.1.4
+- **Fehler behoben:** Beim Start des Fensters lösten die Felder „Geschwindigkeit“ (Ton und Bild-in-Bild) einen Fehler aus, weil Regler daneben noch nicht existierten. Das war der erste Fund aus dem echten Qt-Start auf dem Build-Server.
+- Der Oberflächen-Test macht Fehler in Qt-Slots jetzt zu Testfehlern (Qt gibt sie sonst nur aus) und nutzt ein Testvideo mit Ton.
+
 ## 1.1.3
 - Test-Korrektur: Die Attrappe für die Spracherkennung im Untertitel-Test läuft jetzt auch unter Windows (bisher nur Linux). Das Programm selbst ist unverändert.
 

@@ -21,7 +21,22 @@ from app.paths import find_binary  # noqa: E402
 from app.ui.theme import STYLE  # noqa: E402
 
 
+SLOT_ERRORS: list = []
+
+
+def _collect(exc_type, exc, tb):
+    import traceback
+    SLOT_ERRORS.append("".join(traceback.format_exception(exc_type, exc, tb)))
+    traceback.print_exception(exc_type, exc, tb)
+
+
+def no_slot_errors(where: str) -> None:
+    """Fehler in Qt-Slots werden von Qt nur ausgegeben, nicht geworfen – hier machen wir sie zu Testfehlern."""
+    assert not SLOT_ERRORS, f"Fehler in einem Qt-Slot ({where}):\n" + SLOT_ERRORS[0]
+
+
 def main() -> int:
+    sys.excepthook = _collect
     app = QApplication([])
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
@@ -29,6 +44,7 @@ def main() -> int:
     win.resize(1480, 880)
     win.show()
     app.processEvents()
+    no_slot_errors("Fenster aufbauen")
 
     assert win.cmb_format.count() >= 7, "Format-Presets fehlen"
     assert win.cmb_export.count() >= 4, "Export-Presets fehlen"
@@ -50,7 +66,7 @@ def main() -> int:
     assert win.tabs.count() == 9 and win.tabs.tabText(1) == "Bild" and win.tabs.tabText(5) == "Ton" and win.tabs.tabText(6) == "Bild-in-Bild" and win.tabs.tabText(7) == "Untertitel" and win.tabs.tabText(8) == "Bewegung"
     vid = str(Path(tempfile.mkdtemp()) / "t.mp4")
     subprocess.run([find_binary("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=3",
-                    "-c:v", "libx264", vid], check=True)
+                    "-f", "lavfi", "-i", "sine=frequency=300:duration=3", "-c:v", "libx264", "-c:a", "aac", "-shortest", vid], check=True)
     win.import_files([vid])
     assert len(win.project.clips) == 1 and win.sel == 0
     win._grade_timer.stop()
@@ -239,6 +255,7 @@ def main() -> int:
     diagnostics.log("ui_smoke 1.1 ok")
     assert diagnostics.log_file().exists()
 
+    no_slot_errors("Ende des Tests")
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "ui_smoke.png")
     win.grab().save(str(out))
     print("UI-Start-Test OK, Screenshot:", out)
