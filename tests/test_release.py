@@ -50,6 +50,15 @@ for word in ("FFmpeg", "PySide6", "fontTools", "PyInstaller", "Inno Setup", "whi
     check(word in t, f"THIRD_PARTY.txt erw채hnt {word} nicht")
 req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
 check("PySide6" in req and "fonttools" in req.lower(), "requirements.txt unvollst채ndig")
+check("PySide6-Addons" in req, "requirements.txt ohne PySide6-Addons (QtMultimedia fehlt sonst beim Start)")
+dev = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8").lower()
+check("numpy" in dev and "pillow" in dev, "requirements-dev.txt ohne numpy/pillow")
+# Jedes Qt-Modul, das die Oberfl채che importiert, muss im Paket Essentials oder Addons liegen
+import re as _re
+mods = set()
+for f in (ROOT / "app").rglob("*.py"):
+    mods |= set(_re.findall(r"from PySide6\.(Qt\w+) import", f.read_text(encoding="utf-8")))
+check(mods <= {"QtCore", "QtGui", "QtWidgets", "QtMultimedia", "QtMultimediaWidgets"}, f"Unerwartete Qt-Module: {mods}")
 print("OK  Lizenzen")
 
 # Presets: g체ltiges JSON, eindeutige IDs, Looks verweisen auf vorhandene Effekte
@@ -71,7 +80,7 @@ print(f"OK  Presets ({len(fx.REGISTRY)} Effekte, {len(ids_all['transitions'])} �
 # Workflow und Installer
 wf = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
 for item in ("--icon", "assets;assets", "THIRD_PARTY.txt", "test_audio.py", "test_motion.py", "test_subtitles.py",
-             "test_overlay.py", "test_transitions.py", "test_preview.py", "test_history.py", "ui_smoke.py", "timeline_logic_check.py", "test_diagnostics.py", "SIGN_PFX_BASE64"):
+             "test_overlay.py", "test_transitions.py", "test_preview.py", "test_history.py", "ui_smoke.py", "timeline_logic_check.py", "test_diagnostics.py", "SIGN_PFX_BASE64", "requirements-dev.txt", "LASTEXITCODE"):
     check(item in wf, f"build.yml enth채lt {item} nicht")
 tests_dir = {p.name for p in (ROOT / "tests").glob("test_*.py")}
 for name in tests_dir:

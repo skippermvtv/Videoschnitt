@@ -1,5 +1,10 @@
 # Änderungen
 
+## 1.1.1
+- **Wichtige Korrektur:** Das Qt-Zusatzpaket `PySide6-Addons` fehlte in `requirements.txt`. Ohne es startet das Programm nicht (Fehler „No module named PySide6.QtMultimedia“). Jetzt enthalten.
+- Der Test-Lauf auf GitHub installiert numpy und Pillow (neue Datei `requirements-dev.txt`) und bricht beim ersten fehlgeschlagenen Test sofort ab, mit dem Namen des Tests. Bisher wurden Fehler mittendrin übersehen.
+- Neue Prüfung: Jedes importierte Qt-Modul muss in den Paketen aus `requirements.txt` enthalten sein.
+
 ## 1.1.0 – Stabilisierung
 - **Fehlerprotokoll:** ClipForge schreibt ein Protokoll nach `%APPDATA%\ClipForge\logs` (Start, Exporte, Fehler; rotierend, bleibt klein). Harte Abstürze landen in `crash.txt`.
 - **Unerwartete Fehler** zeigen jetzt einen Dialog mit „Bericht kopieren“, statt still zu verschwinden. Das Programm läuft weiter.
