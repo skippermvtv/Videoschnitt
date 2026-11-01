@@ -48,11 +48,17 @@ print("OK  Hilfe")
 t = (ROOT / "THIRD_PARTY.txt").read_text(encoding="utf-8")
 for word in ("FFmpeg", "PySide6", "fontTools", "PyInstaller", "Inno Setup", "whisper.cpp", "ClipForge Metal"):
     check(word in t, f"THIRD_PARTY.txt erwähnt {word} nicht")
+import re as _r0
+_re_req = _r0.compile(r"[A-Za-z0-9_.\-]+([<>=!~]=?[0-9.,<>=]+)?")
 req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
 check("PySide6" in req and "fonttools" in req.lower(), "requirements.txt unvollständig")
 check("PySide6-Addons" in req, "requirements.txt ohne PySide6-Addons (QtMultimedia fehlt sonst beim Start)")
 dev = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8").lower()
 check("numpy" in dev and "pillow" in dev, "requirements-dev.txt ohne numpy/pillow")
+for _f in ("requirements.txt", "requirements-dev.txt"):   # pip kennt nur '#' als Kommentar; ';' bedeutet Bedingung
+    for _i, _l in enumerate((ROOT / _f).read_text(encoding="utf-8").splitlines(), 1):
+        _l = _l.strip()
+        check(not _l or _l.startswith("#") or _re_req.fullmatch(_l), f"{_f} Zeile {_i} ist für pip ungültig: {_l}")
 # Jedes Qt-Modul, das die Oberfläche importiert, muss im Paket Essentials oder Addons liegen
 import re as _re
 mods = set()
