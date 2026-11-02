@@ -4,7 +4,6 @@ Aufruf:  python tests/test_effects_ffmpeg.py
 """
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -20,7 +19,7 @@ def main() -> int:
     for eid in fx.REGISTRY:
         graph = ";".join(fx.build_graph([{"id": eid, "intensity": 70}], "0:v", "out", ctx))
         cmd = [ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i",
-               f"testsrc2=size=540x960:rate=30:duration=2", "-filter_complex",
+               "testsrc2=size=540x960:rate=30:duration=2", "-filter_complex",
                graph, "-map", "[out]", "-f", "null", "-"]
         r = subprocess.run(cmd, capture_output=True, text=True)
         status = "OK " if r.returncode == 0 and not r.stderr.strip() else "FEHLER"

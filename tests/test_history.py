@@ -1,5 +1,5 @@
 """Rückgängig/Wiederholen, Wiederfinden fehlender Dateien, Speichern/Laden (ohne Qt, ohne FFmpeg)."""
-import sys, tempfile, shutil
+import sys, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.core.history import History

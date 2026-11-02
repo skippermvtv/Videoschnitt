@@ -12,6 +12,9 @@ import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from app.paths import find_binary  # noqa: E402
+
+FFMPEG = find_binary("ffmpeg")      # mitgeliefertes FFmpeg bzw. PATH (auf dem Build-Server liegt es nur in vendor/)
 
 ERRORS: list[str] = []
 
@@ -251,12 +254,12 @@ tmp = Path(tempfile.mkdtemp())
 import subprocess  # noqa: E402
 
 vid = tmp / "t.mp4"
-subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=4",
+subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=4",
                 "-f", "lavfi", "-i", "sine=duration=4", "-shortest", "-c:v", "libx264", "-c:a", "aac", str(vid)], check=True)
 wav = tmp / "m.wav"
-subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=500:duration=2", str(wav)], check=True)
+subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=500:duration=2", str(wav)], check=True)
 png = tmp / "i.png"
-subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=200x200:d=1", "-frames:v", "1", str(png)], check=True)
+subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=200x200:d=1", "-frames:v", "1", str(png)], check=True)
 
 win.import_files([str(vid)])
 win._add_to_timeline(str(vid))

@@ -231,7 +231,7 @@ def main() -> int:
     assert not win._autosave_path().exists()
 
     # 1.2: Effekt-Spur (FX): Blöcke anlegen, auswählen, ändern, ablegen, löschen; Timeline wirklich zeichnen
-    from PySide6.QtCore import QMimeData, QPointF, Qt
+    from PySide6.QtCore import QPointF, Qt
     from PySide6.QtGui import QDropEvent
     assert win.tabs.tabText(2) == "Effekte"
     n0 = len(win.project.effects)

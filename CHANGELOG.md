@@ -1,5 +1,12 @@
 # Änderungen
 
+## 1.2.1
+- Zweite Fehlersuche nach 1.2.0:
+  - Tests rufen FFmpeg jetzt über das mitgelieferte Programm auf (vorher über den Namen `ffmpeg`, was auf dem Build-Server rot geworden wäre).
+  - Die Effektliste kopiert beim Ziehen auf die Effekt-Spur, statt den Eintrag zu verschieben.
+  - `ui_logic_check` läuft jetzt auch im Build-Workflow.
+  - Zufalls-Härtetest der Effekt-Blöcke (Modell und echter Export mit sehr kurzen, überlappenden und überstehenden Blöcken): keine Fehler.
+
 ## 1.2.0
 - **Neuer Name: FATE VIDEOSCHNITT** (vorher ClipForge) – Fenster, Installer (`FATE-VIDEOSCHNITT-Setup.exe`), Programmdatei, Hilfe, Lizenzen und README.
   - Der Datenordner `%APPDATA%\ClipForge` wird beim ersten Start automatisch in `%APPDATA%\FATE VIDEOSCHNITT` umbenannt (Einstellungen, Presets, Schriften, Autosave, Spracherkennung bleiben erhalten).

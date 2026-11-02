@@ -340,6 +340,7 @@ class MainWindow(QMainWindow):
         self.fx_tree.setHeaderHidden(True)
         self.fx_tree.setDragEnabled(True)
         self.fx_tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self.fx_tree.setDefaultDropAction(Qt.DropAction.CopyAction)   # Ziehen kopiert: der Effekt bleibt in der Liste
         for cat, items in fx.categories().items():
             top = QTreeWidgetItem([cat])
             top.setFlags(Qt.ItemFlag.ItemIsEnabled)

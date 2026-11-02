@@ -6,6 +6,9 @@ Findet Tippfehler, falsche Namen und Logikfehler. Ersetzt NICHT den echten Start
 import sys, types, subprocess, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from app.paths import find_binary  # noqa: E402
+
+FFMPEG = find_binary("ffmpeg")      # mitgeliefertes FFmpeg bzw. PATH (auf dem Build-Server liegt es nur in vendor/)
 
 
 class _Meta(type):
@@ -57,7 +60,7 @@ print("Fenster erzeugt")
 
 tmp = Path(tempfile.mkdtemp())
 vid = tmp / "t.mp4"
-subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=5",
+subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=5",
                 "-f", "lavfi", "-i", "sine=duration=5", "-shortest", "-c:v", "libx264", "-c:a", "aac", str(vid)], check=True)
 win.import_files([str(vid)])
 assert len(win.project.clips) == 1, "Auto-Hinzufügen beim ersten Import"
@@ -89,7 +92,7 @@ exporter.run(cmd, total)
 print("Export ok, Dauer", round(total, 2))
 # Audio: trennen, Musik hinzufügen, verbinden, löschen
 aud = tmp / "m.wav"
-subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=1000:duration=2", str(aud)], check=True)
+subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=1000:duration=2", str(aud)], check=True)
 win.sel = 0
 win.detach_selected_audio()
 assert win.project.clips[0].audio_detached and len(win.project.audio_clips) == 1 and win.asel == 0
@@ -128,7 +131,7 @@ win.project.clips = []; assert win.restore_autosave() and len(win.project.clips)
 assert not win._autosave_path().exists()
 # Standbild + Bild-in-Bild
 img = tmp / "b.png"
-subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=200x100", "-frames:v", "1", str(img)], check=True)
+subprocess.run([FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=200x100", "-frames:v", "1", str(img)], check=True)
 win.import_files([str(img)])
 assert win.media[str(img)].is_image
 nclips = len(win.project.clips)

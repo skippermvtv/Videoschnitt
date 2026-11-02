@@ -74,6 +74,7 @@ jobs:
           T tests/test_diagnostics.py
           T tests/test_rename.py
           T tests/test_fx_lane.py $env:RUNNER_TEMP
+          T tests/ui_logic_check.py
           T tests/ui_signal_check.py
           T tests/test_preview.py $env:RUNNER_TEMP
           T tests/test_motion.py $env:RUNNER_TEMP
