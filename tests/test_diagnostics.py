@@ -51,7 +51,7 @@ print("OK  Protokoll und Hook")
 enc = diagnostics.test_encoders()
 check(enc.get("libx264", (False,))[0], "libx264 sollte im Test funktionieren")
 rep = diagnostics.build_report()
-for w in ("ClipForge", "FFmpeg:", "Encoder-Test:", "libx264: OK", "Spracherkennung: nicht eingerichtet", "Protokoll (Ende)", "Testeintrag"):
+for w in ("FATE VIDEOSCHNITT", "FFmpeg:", "Encoder-Test:", "libx264: OK", "Spracherkennung: nicht eingerichtet", "Protokoll (Ende)", "Testeintrag"):
     check(w in rep, f"Bericht ohne '{w}'")
 check(len(diagnostics.build_report(False, False)) < len(rep), "Kurzbericht sollte kürzer sein")
 print("OK  Diagnosebericht")

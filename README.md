@@ -1,4 +1,4 @@
-# ClipForge – Videoschnitt für Windows
+# FATE VIDEOSCHNITT – Videoschnitt für Windows
 
 Eigenes Videoschnittprogramm mit **Presets für YouTube, Shorts, TikTok, Reels und Instagram**, 31 Effekten (u. a. Glitch, VHS, Neon, Comic),
 **Bildkorrektur**, **Tonspuren** (Ton trennen, Musik, Ducking), **28 Übergängen**, **Untertiteln** (auch automatisch aus Sprache),
@@ -17,7 +17,7 @@ Eine Kurzanleitung findest du im Programm unter **Hilfe → Kurzanleitung (F1)**
 3. Rechts auf **Releases → Create a new release**. Bei *Choose a tag* `v0.1.0` eintippen
    und *Create new tag* wählen, dann **Publish release**.
 4. Reiter **Actions**: Der Lauf „Setup.exe bauen“ dauert ca. 10–15 Minuten.
-   Danach hängt `ClipForge-Setup.exe` am Release (Reiter *Releases*). Das ist die Datei zum Weitergeben.
+   Danach hängt `FATE-VIDEOSCHNITT-Setup.exe` am Release (Reiter *Releases*). Das ist die Datei zum Weitergeben.
 5. Wird der Lauf rot: auf den Lauf klicken, die Fehlermeldung kopieren – damit lässt sich der Fehler gezielt beheben.
 
 Beim Bauen trägt GitHub automatisch Versionsnummer und Repository-Namen in `app/version.py` ein.
@@ -31,12 +31,12 @@ Das verschwindet nur mit einem kostenpflichtigen Code-Signing-Zertifikat.
 3. Installierte Programme melden beim Start „Update verfügbar“ und installieren es nach Bestätigung
    (außerdem: *Hilfe → Nach Updates suchen*).
 
-**Presets ohne neues Release:** JSON-Dateien in `%APPDATA%\ClipForge\presets` (Menü *Hilfe → Eigene Presets-Ordner öffnen*)
+**Presets ohne neues Release:** JSON-Dateien in `%APPDATA%\FATE VIDEOSCHNITT\presets` (Menü *Hilfe → Eigene Presets-Ordner öffnen*)
 ergänzen oder überschreiben die mitgelieferten Presets.
 
 ## Schrift
 
-Mitgeliefert ist `fonts/ClipForgeMetal.ttf` (Gothic/Metal, A–Z, a–z, Umlaute ÄÖÜäöü, Ziffern 0–9 und die gängigen Satzzeichen).
+Mitgeliefert ist `fonts/FateMetal.ttf` (Gothic/Metal, A–Z, a–z, Umlaute ÄÖÜäöü, Ziffern 0–9 und die gängigen Satzzeichen).
 Weitere `.ttf`/`.otf`-Dateien in den Ordner `fonts/` legen und hochladen – sie werden in die Setup.exe eingebaut und erscheinen
 unter *Text → Schrift*. Enthält ein Text Zeichen, die die Schrift nicht hat, warnt das Programm. Nur Schriften verwenden, die du weitergeben darfst.
 
@@ -70,6 +70,15 @@ def _mein_effekt(i, o, k, c):          # k = Stärke 0.0 … 1.0
 
 Python 3.12+ und Inno Setup 6 installieren, dann `build.bat` doppelklicken.
 
+## Effekt-Spur (ab 1.2)
+
+Alle Effekte liegen als Blöcke auf der Spur **FX Effekte** ganz oben in der Timeline – so siehst du auf einen Blick, wann welcher Effekt wirkt.
+- **Anlegen:** Effekt im Reiter *Effekte* in die Spur ziehen, doppelklicken oder „＋ Auf Effekt-Spur“ (legt ihn am Abspielkopf ab).
+- **Verschieben:** Block in der Mitte anfassen (rastet an Clipgrenzen und anderen Blöcken ein). **Länge ändern:** linken oder rechten Rand ziehen.
+- **Einstellen:** Block anklicken – im Reiter *Effekte* änderst du Stärke, Anfang und Ende. **Löschen:** Entf.
+- Überlappende Blöcke liegen untereinander (bis zu 3 Zeilen). Derselbe Effekt kann beliebig oft vorkommen. Ein Look (Reiter *Effekte*) ersetzt alle Blöcke.
+- Alte Projekte laden unverändert: Effekte ohne Zeitfenster erscheinen als Block über die ganze Länge.
+
 ## Vorschau und Geschwindigkeit (ab 0.9)
 
 - **▶ Vorschau ab Abspielkopf** (Strg+P) zeigt das fertige Ergebnis mit allen Effekten ab der Stelle des Abspielkopfs. Länge und Qualität stellst du im Reiter **Format** unter „Vorschau und Leistung“ ein. Die Vorschau wird gespeichert; ohne Änderung startet sie sofort.
@@ -89,17 +98,21 @@ Zoom 100 % ist die Originalgröße, ab 101 % wird hineingezoomt; der Schwenk wir
 
 ### Automatische Untertitel einrichten (einmalig)
 
-**Einfach (ab 1.1):** Im Reiter Untertitel auf „Untertitel automatisch erzeugen“ klicken (oder Hilfe → Spracherkennung einrichten). ClipForge fragt nach dem Modell und lädt whisper.cpp und das Modell selbst herunter (base: ca. 148 MB). Danach läuft die Erkennung komplett auf deinem PC; das Ergebnis bitte kurz prüfen.
+**Einfach (ab 1.1):** Im Reiter Untertitel auf „Untertitel automatisch erzeugen“ klicken (oder Hilfe → Spracherkennung einrichten). FATE VIDEOSCHNITT fragt nach dem Modell und lädt whisper.cpp und das Modell selbst herunter (base: ca. 148 MB). Danach läuft die Erkennung komplett auf deinem PC; das Ergebnis bitte kurz prüfen.
 
 **Von Hand (falls der Download nicht klappt):**
 1. Von <https://github.com/ggml-org/whisper.cpp/releases> die Windows-Datei (x64) herunterladen und entpacken.
 2. Ein Modell von <https://huggingface.co/ggml-org/whisper.cpp/tree/main> laden, z. B. `ggml-base.bin` (klein, schnell) oder `ggml-small.bin` (genauer).
-3. `whisper-cli.exe` samt DLLs und das Modell in den Ordner `%APPDATA%\ClipForge\whisper` legen.
+3. `whisper-cli.exe` samt DLLs und das Modell in den Ordner `%APPDATA%\FATE VIDEOSCHNITT\whisper` legen.
+
+## Umbenennung (ab 1.2)
+
+Das Programm heißt jetzt **FATE VIDEOSCHNITT** (vorher ClipForge). Beim Update bleiben Einstellungen, eigene Presets, Schriften, Spracherkennung und der Autosave erhalten: der Ordner `%APPDATA%\ClipForge` wird beim ersten Start in `%APPDATA%\FATE VIDEOSCHNITT` umbenannt. Projektdateien (`.cforge`) und die Schrift (jetzt „FATE Metal“) laden wie bisher. Die Setup-Datei heißt `FATE-VIDEOSCHNITT-Setup.exe`; sie ersetzt die alte Installation (die alte `ClipForge.exe` wird entfernt).
 
 ## Wenn etwas nicht klappt (ab 1.1)
 
 - **Hilfe → Diagnose und Fehlerbericht** testet FFmpeg und die Grafikkarten-Encoder und zeigt das Protokoll. „Bericht kopieren“ und in die Nachricht einfügen – der Bericht enthält keine Projektinhalte.
-- Bei einem unerwarteten Fehler erscheint ein Dialog mit demselben Knopf. Die Dateien liegen in `%APPDATA%\ClipForge\logs` (`clipforge.log`, bei harten Abstürzen `crash.txt`).
+- Bei einem unerwarteten Fehler erscheint ein Dialog mit demselben Knopf. Die Dateien liegen in `%APPDATA%\FATE VIDEOSCHNITT\logs` (`videoschnitt.log`, bei harten Abstürzen `crash.txt`).
 
 ## Setup.exe signieren (optional, ab 1.1)
 

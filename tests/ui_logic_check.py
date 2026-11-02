@@ -73,16 +73,13 @@ win.player = P(); win.split_clip()
 assert len(win.project.clips) == 2 and abs(win.project.clips[0].out_pt - 2.0) < 1e-6, win.project.clips
 win.move_clip(1)
 # Effekte setzen
-win._fx_state["glitch"] = {"intensity": 80, "start": 0.0, "end": 3.0}
-class It:
-    def __init__(s, eid): s.eid = eid
-    def checkState(s, c): return mw.Qt.CheckState.Checked
-    def setCheckState(s, c, v): pass
-    def data(s, c, r): return s.eid
-win._fx_items = lambda: [It("glitch"), It("vhs")]
-win._collect_effects()
+win.add_effect_block("glitch", 1.0)                      # Effekt-Block auf der FX-Spur anlegen
+win.add_effect_block("vhs", 0.0)
+assert len(win.project.effects) == 2 and win.fsel == 1
+win.project.effects[0]["intensity"] = 80
+win.project.fx_set_span(0, 0.0, 3.0)
 print("Effekte:", win.project.effects)
-assert win.project.effects[0]["end"] == 3.0
+assert win.project.effects[0]["end"] == 3.0 or win.project.fx_span(0)[1] == 3.0
 # Text
 win.add_text(); t0 = win.project.texts[0]; t0.text = "Test äöü"; t0.font = ""; t0.start = 0.0; t0.end = 2.0; t0.size_pct = 7.0
 # Export-Befehl bauen und ausführen
@@ -102,7 +99,7 @@ win.add_audio_files([str(aud)], track=2)
 assert len(win.project.audio_clips) == 2 and win.project.audio_clips[1].track == 2 and win.asel == 1
 win.import_files([str(aud)])                      # reine Audiodatei per Import -> Musik
 assert len(win.project.audio_clips) == 3
-win.asel = 2; win.delete_selected(); assert len(win.project.audio_clips) == 2
+win.fsel = -1; win.asel = 2; win.delete_selected(); assert len(win.project.audio_clips) == 2
 win.reattach_selected_clip()
 assert not win.project.clips[0].audio_detached and len(win.project.audio_clips) == 1
 win.sel = 0; win.move_clip(1)

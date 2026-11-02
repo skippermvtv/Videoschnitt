@@ -133,7 +133,7 @@ def find_whisper_model() -> str | None:
 
 
 def find_whisper() -> tuple[str, str] | None:
-    """(Programm, Modell) aus %APPDATA%\\ClipForge\\whisper – oder None. Erwartet whisper.cpp."""
+    """(Programm, Modell) aus %APPDATA%\\FATE VIDEOSCHNITT\\whisper – oder None. Erwartet whisper.cpp."""
     exe, model = find_whisper_program(), find_whisper_model()
     return (exe, model) if exe and model else None
 

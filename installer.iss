@@ -1,8 +1,9 @@
-; Inno-Setup-Skript: erzeugt installer_output\ClipForge-Setup.exe
+; Inno-Setup-Skript: erzeugt installer_output\FATE-VIDEOSCHNITT-Setup.exe
 ; Aufruf (macht der GitHub-Workflow / build.bat automatisch):
 ;   ISCC.exe /DMyAppVersion=0.1.0 installer.iss
 
-#define MyAppName "ClipForge"
+#define MyAppName "FATE VIDEOSCHNITT"
+#define MyAppExe "FATE-VIDEOSCHNITT.exe"
 #ifndef MyAppVersion
   #define MyAppVersion "0.1.0"
 #endif
@@ -16,7 +17,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=installer_output
-OutputBaseFilename=ClipForge-Setup
+OutputBaseFilename=FATE-VIDEOSCHNITT-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -25,7 +26,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ; Ohne Administratorrechte installierbar (nur für den aktuellen Benutzer), auf Wunsch für alle
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-UninstallDisplayIcon={app}\ClipForge.exe
+UninstallDisplayIcon={app}\{#MyAppExe}
 CloseApplications=yes
 RestartApplications=yes
 
@@ -35,14 +36,20 @@ Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Verknüpfung auf dem Desktop erstellen"; GroupDescription: "Zusätzliche Symbole:"
 
+[InstallDelete]
+; Update von „ClipForge“: alte Programmdatei und alte Verknüpfungen entfernen
+Type: files; Name: "{app}\ClipForge.exe"
+Type: files; Name: "{autoprograms}\ClipForge.lnk"
+Type: files; Name: "{autodesktop}\ClipForge.lnk"
+
 [Files]
-Source: "dist\ClipForge\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\FATE-VIDEOSCHNITT\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "THIRD_PARTY.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\ClipForge.exe"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\ClipForge.exe"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\ClipForge.exe"; Description: "ClipForge jetzt starten"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExe}"; Description: "{#MyAppName} jetzt starten"; Flags: nowait postinstall skipifsilent

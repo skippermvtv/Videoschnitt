@@ -1,7 +1,7 @@
 """Fehlerprotokoll, Absturz-Hook und Diagnosebericht.
 
-Alles landet in %APPDATA%\\ClipForge\\logs\\clipforge.log. Bei einem Absturz oder einem
-unerwarteten Fehler schreibt ClipForge den vollständigen Fehlertext dorthin und zeigt
+Alles landet in %APPDATA%\\FATE VIDEOSCHNITT\\logs\\videoschnitt.log. Bei einem Absturz oder einem
+unerwarteten Fehler schreibt das Programm den vollständigen Fehlertext dorthin und zeigt
 einen Dialog, in dem man den Bericht mit einem Klick kopieren kann.
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ from .. import paths
 from ..version import APP_NAME, VERSION
 
 _NOWINDOW = 0x08000000
-_LOG = logging.getLogger("clipforge")
+_LOG = logging.getLogger("fate_videoschnitt")
 _state: dict = {"fault_file": None, "ready": False}
 
 
@@ -33,7 +33,7 @@ def log_dir() -> Path:
 
 
 def log_file() -> Path:
-    return log_dir() / "clipforge.log"
+    return log_dir() / "videoschnitt.log"
 
 
 def setup_logging() -> Path:

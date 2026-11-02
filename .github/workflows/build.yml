@@ -72,6 +72,9 @@ jobs:
           T tests/test_history.py
           T tests/test_release.py
           T tests/test_diagnostics.py
+          T tests/test_rename.py
+          T tests/test_fx_lane.py $env:RUNNER_TEMP
+          T tests/ui_signal_check.py
           T tests/test_preview.py $env:RUNNER_TEMP
           T tests/test_motion.py $env:RUNNER_TEMP
           T tests/test_subtitles.py $env:RUNNER_TEMP
@@ -83,7 +86,7 @@ jobs:
       - name: Programm bauen (PyInstaller)
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --windowed --name ClipForge `
+          pyinstaller --noconfirm --clean --windowed --name FATE-VIDEOSCHNITT `
             --icon "assets/icon.ico" `
             --add-data "presets;presets" `
             --add-data "assets;assets" `
@@ -109,20 +112,20 @@ jobs:
         run: |
           [IO.File]::WriteAllBytes("sign.pfx", [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
           $st = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
-          & $st.FullName sign /f sign.pfx /p $env:SIGN_PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 installer_output/ClipForge-Setup.exe
+          & $st.FullName sign /f sign.pfx /p $env:SIGN_PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 installer_output/FATE-VIDEOSCHNITT-Setup.exe
           Remove-Item sign.pfx
 
       - name: Setup.exe als Download bereitstellen
         uses: actions/upload-artifact@v4
         with:
-          name: ClipForge-Setup
+          name: FATE-VIDEOSCHNITT-Setup
           path: |
-            installer_output/ClipForge-Setup.exe
+            installer_output/FATE-VIDEOSCHNITT-Setup.exe
             ui_smoke.png
 
       - name: Release veröffentlichen
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: installer_output/ClipForge-Setup.exe
+          files: installer_output/FATE-VIDEOSCHNITT-Setup.exe
           generate_release_notes: true

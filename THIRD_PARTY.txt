@@ -1,12 +1,12 @@
-Drittanbieter-Software in ClipForge
-===================================
+Drittanbieter-Software in FATE VIDEOSCHNITT
+===========================================
 
 FFmpeg (https://ffmpeg.org)
-  ClipForge liefert eine FFmpeg-Windows-Version mit (GPL-Build von BtbN:
+  FATE VIDEOSCHNITT liefert eine FFmpeg-Windows-Version mit (GPL-Build von BtbN:
   https://github.com/BtbN/FFmpeg-Builds). FFmpeg steht unter der GPL/LGPL.
   Lizenztexte und Quellcode: https://ffmpeg.org/legal.html
   Den Quellcode des mitgelieferten Builds stellt BtbN bereit (siehe Link oben, Release-Seite des Builds).
-  FFmpeg läuft als eigenständiges Programm (ffmpeg.exe / ffprobe.exe) und wird von ClipForge aufgerufen.
+  FFmpeg läuft als eigenständiges Programm (ffmpeg.exe / ffprobe.exe) und wird vom Programm aufgerufen.
 
 Qt / PySide6 (https://www.qt.io, https://pyside.org)
   Oberfläche, Vorschau-Player. Lizenz: LGPLv3.
@@ -24,7 +24,7 @@ Optional (wird NICHT mitgeliefert, nur auf Wunsch vom Benutzer selbst eingericht
     (wird auf Wunsch von GitHub heruntergeladen; die Sprachmodelle stammen von https://huggingface.co/ggml-org/whisper.cpp)
   Whisper-Sprachmodelle (OpenAI) – MIT-Lizenz
 
-Schrift "ClipForge Metal" (fonts/ClipForgeMetal.ttf)
+Schrift "FATE Metal" (fonts/FateMetal.ttf)
   Nachgezeichnet nach der Vorlage "FATE Metal Font". Die Rechte an der Vorlage und an der
   abgeleiteten Schrift liegen beim Urheber der Vorlage; weitergeben nur mit dessen Erlaubnis.
 

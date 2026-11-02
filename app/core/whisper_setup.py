@@ -1,4 +1,4 @@
-"""Einrichtung der Spracherkennung: lädt whisper.cpp und ein Sprachmodell in %APPDATA%\\ClipForge\\whisper.
+"""Einrichtung der Spracherkennung: lädt whisper.cpp und ein Sprachmodell in %APPDATA%\\FATE VIDEOSCHNITT\\whisper.
 
 Alle Adressen lassen sich als Parameter überschreiben (die Tests nutzen einen lokalen Server).
 """

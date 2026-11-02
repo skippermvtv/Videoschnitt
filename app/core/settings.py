@@ -1,4 +1,4 @@
-"""Programm-Einstellungen (gelten für alle Projekte), gespeichert in %APPDATA%\\ClipForge\\settings.json."""
+"""Programm-Einstellungen (gelten für alle Projekte), gespeichert in %APPDATA%\\FATE VIDEOSCHNITT\\settings.json."""
 from __future__ import annotations
 
 import json

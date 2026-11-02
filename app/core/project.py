@@ -288,6 +288,70 @@ class Project:
     def clip_start(self, index: int) -> float:
         return sum(c.length for c in self.clips[:index]) - sum(self.overlap_after(i) for i in range(index))
 
+    # --- Effekt-Spur (FX): jeder Eintrag in `effects` ist ein Block {"id", "intensity", "start", "end"} ----------
+    FX_MIN = 0.1          # kürzester Block in Sekunden
+
+    def fx_span(self, i: int) -> tuple[float, float]:
+        """(Anfang, Ende) des Effekt-Blocks in Sekunden. Ohne Angaben gilt der Effekt für das ganze Projekt."""
+        e = self.effects[i]
+        total = max(self.duration, 0.0)
+        s = max(0.0, float(e.get("start") or 0.0))
+        t = e.get("end")
+        t = total if t is None else float(t)
+        if total > 0:
+            t = min(t, total)
+        return s, max(t, s + self.FX_MIN)
+
+    def fx_set_span(self, i: int, start: float, end: float) -> None:
+        """Setzt Anfang/Ende. Reicht ein Block vom Anfang bis zum Ende des Projekts, werden keine Zeiten gespeichert."""
+        e = self.effects[i]
+        total = self.duration
+        start = max(0.0, float(start))
+        end = max(float(end), start + self.FX_MIN)
+        if total > 0:
+            end = min(end, max(total, start + self.FX_MIN))
+        whole_end = total > 0 and end >= total - 0.01
+        if start <= 0.005 and (whole_end or total <= 0):
+            e.pop("start", None)
+            e.pop("end", None)
+            return
+        e["start"] = round(start, 3)
+        e["end"] = None if whole_end else round(end, 3)
+
+    def fx_add(self, effect_id: str, intensity: float, at: float = 0.0, length: float | None = None) -> int:
+        """Legt einen neuen Effekt-Block an und gibt seinen Index zurück."""
+        self.effects.append({"id": effect_id, "intensity": intensity})
+        i = len(self.effects) - 1
+        total = self.duration
+        if length is None:
+            length = 3.0
+        at = max(0.0, at)
+        if total > 0:
+            at = min(at, max(0.0, total - self.FX_MIN))
+            length = min(length, total - at)
+        self.fx_set_span(i, at, at + max(length, self.FX_MIN))
+        return i
+
+    def fx_rows(self, max_rows: int = 3) -> list[int]:
+        """Zeile (0, 1, 2 …) für jeden Block, damit sich überlappende Effekte nicht verdecken."""
+        order = sorted(range(len(self.effects)), key=lambda i: (self.fx_span(i)[0], i))
+        row_end: list[float] = []
+        rows = [0] * len(self.effects)
+        for i in order:
+            s, t = self.fx_span(i)
+            for r, end in enumerate(row_end):
+                if s >= end - 1e-6:
+                    row_end[r] = t
+                    rows[i] = r
+                    break
+            else:
+                if len(row_end) < max_rows:
+                    row_end.append(t)
+                    rows[i] = len(row_end) - 1
+                else:
+                    rows[i] = max_rows - 1
+        return rows
+
     def clip_index(self, uid: str) -> int:
         for i, c in enumerate(self.clips):
             if c.uid == uid:

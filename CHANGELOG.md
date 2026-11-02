@@ -1,5 +1,16 @@
 # Änderungen
 
+## 1.2.0
+- **Neuer Name: FATE VIDEOSCHNITT** (vorher ClipForge) – Fenster, Installer (`FATE-VIDEOSCHNITT-Setup.exe`), Programmdatei, Hilfe, Lizenzen und README.
+  - Der Datenordner `%APPDATA%\ClipForge` wird beim ersten Start automatisch in `%APPDATA%\FATE VIDEOSCHNITT` umbenannt (Einstellungen, Presets, Schriften, Autosave, Spracherkennung bleiben erhalten).
+  - Die Schrift heißt jetzt „FATE Metal“ (`FateMetal.ttf`); Projekte, die noch die alte Schrift nennen, finden sie automatisch.
+  - Das Setup ersetzt eine vorhandene ClipForge-Installation und entfernt die alte `ClipForge.exe` samt Verknüpfungen. Projektdateien (`.cforge`) bleiben kompatibel.
+- **Neue Spur „FX Effekte“** ganz oben in der Timeline: Effekte sind jetzt Blöcke mit Zeitfenster.
+  - Aus der Effektliste in die Spur ziehen (oder doppelklicken / „＋ Auf Effekt-Spur“), verschieben (rastet ein), Rand ziehen für die Länge, Entf zum Löschen.
+  - Beliebig viele Blöcke, auch vom selben Effekt; überlappende Blöcke liegen untereinander.
+  - Der Reiter „Effekte“ ändert Stärke, Anfang und Ende des gewählten Blocks. Alte Projekte laden unverändert.
+- Neue Tests: Effekt-Spur (Modell, Export mit echtem FFmpeg, Maus-Logik, Ablegen), Umbenennung und Datenordner-Umzug.
+
 ## 1.1.4
 - **Fehler behoben:** Beim Start des Fensters lösten die Felder „Geschwindigkeit“ (Ton und Bild-in-Bild) einen Fehler aus, weil Regler daneben noch nicht existierten. Das war der erste Fund aus dem echten Qt-Start auf dem Build-Server.
 - Der Oberflächen-Test macht Fehler in Qt-Slots jetzt zu Testfehlern (Qt gibt sie sonst nur aus) und nutzt ein Testvideo mit Ton.

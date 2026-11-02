@@ -230,6 +230,44 @@ def main() -> int:
     assert win.restore_autosave() and len(win.project.clips) == n
     assert not win._autosave_path().exists()
 
+    # 1.2: Effekt-Spur (FX): Blöcke anlegen, auswählen, ändern, ablegen, löschen; Timeline wirklich zeichnen
+    from PySide6.QtCore import QMimeData, QPointF, Qt
+    from PySide6.QtGui import QDropEvent
+    assert win.tabs.tabText(2) == "Effekte"
+    n0 = len(win.project.effects)
+    win.add_effect_block("vhs", 0.5)
+    assert len(win.project.effects) == n0 + 1 and win.fsel == n0 and win.fx_box.isEnabled() and win.btn_fx_del.isEnabled()
+    win.fx_int.setValue(35)
+    win.fx_start.setValue(1.0)
+    win.fx_end.setValue(2.0)
+    e = win.project.effects[n0]
+    assert e["intensity"] == 35 and win.project.fx_span(n0) == (1.0, 2.0), (e, win.project.fx_span(n0))
+    win.timeline.set_project(win.project, win.sel, win.asel, win.osel, win.fsel)
+    win.timeline.grab()                                   # zeichnet die Timeline inkl. FX-Spur (Painter-Fehler fallen hier auf)
+    it = next(win.fx_tree.topLevelItem(0).child(j) for j in range(win.fx_tree.topLevelItem(0).childCount()))
+    md = win.fx_tree.mimeData([it])
+    assert md.text().startswith("fate-effect:") and md.text().split(":", 1)[1] == it.data(0, Qt.ItemDataRole.UserRole)
+    x_in = win.timeline._x(1.5)
+    assert win.timeline.effect_drop(it.data(0, Qt.ItemDataRole.UserRole), x_in) is not None
+    assert win.timeline.effect_drop(it.data(0, Qt.ItemDataRole.UserRole), 2.0) is None
+    try:
+        ev = QDropEvent(QPointF(x_in, win.timeline._lane_y(5) + 8), Qt.DropAction.CopyAction, md, Qt.MouseButton.LeftButton,
+                        Qt.KeyboardModifier.NoModifier)
+    except TypeError as exc:
+        print("(Drop-Ereignis konnte nicht erzeugt werden:", exc, "- Ablegen wird über das Signal geprüft)")
+        win.timeline.effect_dropped.emit(it.data(0, Qt.ItemDataRole.UserRole), 1.5)
+    else:
+        win.timeline.dropEvent(ev)
+    assert len(win.project.effects) == n0 + 2, "Ablegen aus der Effektliste hat keinen Block angelegt"
+    win.timeline.grab()
+    win.remove_effect_block()
+    assert len(win.project.effects) == n0 + 1
+    win.undo()
+    win.redo()
+    win.add_effect_block("glitch", 0.0)                   # bleibt für den Screenshot stehen
+    win.timeline.grab()
+    no_slot_errors("Effekt-Spur")
+
     # 1.1: Menüeinträge, Diagnose-Fenster, Fehlerdialog, Protokoll
     from PySide6.QtWidgets import QMenu
     from app.ui.workers import DiagnoseWorker

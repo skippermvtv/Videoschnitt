@@ -17,7 +17,7 @@ STEPS = [
                      "Clip ziehen = Reihenfolge ändern. Im Reiter „Clip“ stellst du Tempo, Lautstärke und Übergänge ein."),
     ("3. Format", "Im Reiter „Format“ das Ziel wählen (YouTube, Shorts, TikTok, Reels, Instagram) und die Anpassung "
                   "(Einpassen, Füllen, unscharfer Hintergrund)."),
-    ("4. Aussehen", "Reiter „Bild“ (Licht, Kontrast, Farben), „Effekte“ (Glitch, VHS, Neon …) und „Bewegung“ (Zoom, Schwenk, Drehen)."),
+    ("4. Aussehen", "Reiter „Bild“ (Licht, Kontrast, Farben), „Effekte“ (Glitch, VHS, Neon … – als Blöcke auf der Spur „FX Effekte“) und „Bewegung“ (Zoom, Schwenk, Drehen)."),
     ("5. Text und Untertitel", "Reiter „Text“ (mit Animationen) und „Untertitel“ (von Hand, per SRT-Datei oder automatisch aus Sprache)."),
     ("6. Ton", "„Ton vom Clip trennen“ legt den Ton auf eine eigene Spur. Musik hinzufügen, Ducking und Lautheit im Reiter „Ton“."),
     ("7. Vorschau", "„Vorschau ab Abspielkopf“ (Strg+P) zeigt das Ergebnis mit allen Effekten in kleiner Auflösung."),
@@ -25,6 +25,7 @@ STEPS = [
 ]
 
 TIPS = [
+    "Effekte: aus der Liste auf die Spur „FX Effekte“ oben in der Timeline ziehen (oder doppelklicken). Block verschieben = anderer Zeitpunkt, Rand ziehen = Länge ändern, Entf = löschen. Es sind beliebig viele Blöcke möglich, auch vom selben Effekt.",
     "Die Vorschau im Player zeigt die Originaldatei ohne Effekte – die fertige Wirkung siehst du in „Vorschau ab Abspielkopf“.",
     "Eigene Schriften: Reiter „Text“ → „Schrift hinzufügen …“. Fehlen Zeichen in der Schrift, warnt das Programm vor dem Export.",
     "Eigene Presets (Formate, Looks, Übergänge, Bewegungen) lassen sich ohne neues Update ergänzen: Menü „Hilfe → Eigene Presets-Ordner öffnen“.",

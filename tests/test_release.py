@@ -46,7 +46,7 @@ print("OK  Hilfe")
 
 # Lizenzen
 t = (ROOT / "THIRD_PARTY.txt").read_text(encoding="utf-8")
-for word in ("FFmpeg", "PySide6", "fontTools", "PyInstaller", "Inno Setup", "whisper.cpp", "ClipForge Metal"):
+for word in ("FFmpeg", "PySide6", "fontTools", "PyInstaller", "Inno Setup", "whisper.cpp", "FATE Metal"):
     check(word in t, f"THIRD_PARTY.txt erwähnt {word} nicht")
 import re as _r0
 _re_req = _r0.compile(r"[A-Za-z0-9_.\-]+([<>=!~]=?[0-9.,<>=]+)?")
@@ -101,7 +101,7 @@ check(re.fullmatch(r"\d+\.\d+\.\d+", version.VERSION) is not None, "VERSION ung�
 log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 check("SIGN_PFX_BASE64" in (ROOT / "README.md").read_text(encoding="utf-8"), "README erklärt die Signierung nicht")
 check(f"## {version.VERSION}" in log, f"CHANGELOG ohne Abschnitt {version.VERSION}")
-check((ROOT / "README.md").read_text(encoding="utf-8").startswith("# ClipForge"), "README Kopf")
+check((ROOT / "README.md").read_text(encoding="utf-8").startswith("# FATE VIDEOSCHNITT"), "README Kopf")
 print(f"OK  Version {version.VERSION} und Doku")
 
 sys.exit(1 if fails else 0)

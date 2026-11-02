@@ -1,6 +1,6 @@
 """Presets laden. Mitgelieferte Presets + eigene/nachgeladene Presets des Benutzers.
 
-Jede JSON-Datei in presets/ (oder %APPDATA%/ClipForge/presets) enthält Listen mit "id".
+Jede JSON-Datei in presets/ (oder %APPDATA%/FATE VIDEOSCHNITT/presets) enthält Listen mit "id".
 Presets des Benutzers überschreiben mitgelieferte mit gleicher id. So kann man später
 neue Formate, Export-Einstellungen und Looks hinzufügen, ohne den Programmcode zu ändern.
 """

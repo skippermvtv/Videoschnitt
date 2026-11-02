@@ -1,4 +1,4 @@
-"""Startpunkt von ClipForge."""
+"""Startpunkt von FATE VIDEOSCHNITT."""
 import sys
 
 from PySide6.QtCore import QObject, Signal
@@ -32,7 +32,7 @@ def main() -> int:
     diagnostics.install_exception_hooks(bridge.error.emit)
     win.show()
     code = app.exec()
-    diagnostics.log("ClipForge beendet (Code %s)", code)
+    diagnostics.log("%s beendet (Code %s)", APP_NAME, code)
     return code
 
 

@@ -39,6 +39,8 @@ class QWidget:
     def setCursor(s, c): pass
     def update(s): pass
     def font(s): return Any()
+    def setAcceptDrops(s, b): pass
+    def window(s): return s._win if hasattr(s, "_win") else s
 
 def mod(name, **kw):
     m = types.ModuleType(name)
@@ -59,6 +61,7 @@ def init(self, parent=None):
     self.clip_selected, self.audio_selected, self.audio_edited = Sig(), Sig(), Sig()
     self.clip_edited, self.clip_reordered, self.seek_requested = Sig(), Sig(), Sig()
     self.overlay_selected, self.overlay_edited = Sig(), Sig()
+    self.fx_selected, self.fx_edited, self.effect_dropped = Sig(), Sig(), Sig()
 tl.Timeline.__init__ = init
 
 from app.core.project import AudioClip, Clip, OverlayClip, Project
@@ -156,4 +159,71 @@ r = t._orects[0][1]
 t.mousePressEvent(Ev(r.right() - 2, yo)); assert t._drag["mode"] == "trim_r"
 t.mouseMoveEvent(Ev(r.right() - 2 - 3 * px, yo)); t.mouseReleaseEvent(Ev(0, 0))
 assert 2.5 < p.overlays[0].out_pt < 3.5, p.overlays[0].out_pt
+
+# 13) Effekt-Spur (FX) ganz oben: anlegen, verschieben, kürzen, Zeilen, Ablegen aus der Liste
+p.audio_clips, p.overlays = [], []
+p.clips = [Clip("a.mp4", 10.0), Clip("b.mp4", 10.0)]      # 20 s
+p.effects = []
+assert t._lane_y(5) < t._lane_y(4) < t._lane_y(0), "FX muss die oberste Spur sein"
+i = p.fx_add("glitch", 70, 2.0)                           # 2 … 5 s
+t.set_project(p, 0, -1, -1, -1)
+def frects():
+    t._frects = []
+    for k in range(len(p.effects)):
+        f0, f1 = p.fx_span(k)
+        row = t._fx_rows[k]
+        t._frects.append((k, QRectF(t._x(f0), t._lane_y(5) + 3.0 + row * tl.FX_ROW_H, (f1 - f0) / t._span() * t._avail(), tl.FX_ROW_H - 2.0)))
+frects()
+px = t._avail() / t._span(); yf = t._lane_y(5) + 3.0 + 6
+t.mousePressEvent(Ev(t._x(3.5), yf)); assert t.fx_selected.calls[-1] == (0,) and t._drag["kind"] == "f" and t._drag["mode"] == "move"
+t.mouseMoveEvent(Ev(t._x(3.5) + 4.0 * px, yf)); t.mouseReleaseEvent(Ev(0, 0))
+assert abs(p.fx_span(0)[0] - 6.0) < 0.1 and abs(p.fx_span(0)[1] - 9.0) < 0.1, p.fx_span(0)
+assert t.fx_edited.calls and t.fx_edited.calls[-1] == (0,)
+frects(); r = t._frects[0][1]
+t.mousePressEvent(Ev(r.right() - 2, yf)); assert t._drag["mode"] == "trim_r"
+t.mouseMoveEvent(Ev(r.right() - 2 + 2.0 * px, yf)); t.mouseReleaseEvent(Ev(0, 0))
+assert abs(p.fx_span(0)[1] - 11.0) < 0.15 and abs(p.fx_span(0)[0] - 6.0) < 0.1, p.fx_span(0)
+frects(); r = t._frects[0][1]
+t.mousePressEvent(Ev(r.left() + 2, yf)); assert t._drag["mode"] == "trim_l"
+t.mouseMoveEvent(Ev(r.left() + 2 - 1.0 * px, yf)); t.mouseReleaseEvent(Ev(0, 0))
+assert abs(p.fx_span(0)[0] - 5.0) < 0.15, p.fx_span(0)
+# bis ans Projektende ziehen -> "bis Ende", ganz vorn + bis Ende -> keine Zeiten gespeichert
+frects(); r = t._frects[0][1]
+t.mousePressEvent(Ev(r.right() - 2, yf)); t.mouseMoveEvent(Ev(r.right() + 40 * px, yf)); t.mouseReleaseEvent(Ev(0, 0))
+assert p.effects[0].get("end") is None and abs(p.fx_span(0)[1] - 20.0) < 1e-6, p.effects[0]
+frects(); r = t._frects[0][1]
+t.mousePressEvent(Ev(r.left() + 2, yf)); t.mouseMoveEvent(Ev(r.left() + 2 - 60 * px, yf)); t.mouseReleaseEvent(Ev(0, 0))
+assert "start" not in p.effects[0] and "end" not in p.effects[0] and p.fx_span(0) == (0.0, 20.0), p.effects[0]
+# zwei überlappende Blöcke liegen in zwei Zeilen, die Spur wird höher
+h1 = t._lane_h(5)
+p.fx_add("vhs", 50, 1.0, 5.0)
+t.set_project(p, 0, -1, -1, 0)
+assert t._fx_rows == [0, 1] and t._lane_h(5) > h1, (t._fx_rows, h1, t._lane_h(5))
+assert t._lane_y(4) > t._lane_y(5) + t._lane_h(5) - 1e-6, "darunterliegende Spuren müssen nach unten rutschen"
+# Ablegen aus der Effektliste
+class Mime:
+    def __init__(s, text="", urls=False): s._t, s._u = text, urls
+    def hasText(s): return bool(s._t)
+    def text(s): return s._t
+    def hasUrls(s): return s._u
+class DEv(Ev):
+    def __init__(s, x, y, mime): super().__init__(x, y); s._m = mime; s.acc = None
+    def mimeData(s): return s._m
+    def acceptProposedAction(s): s.acc = True
+    def ignore(s): s.acc = False
+assert abs(t.effect_drop("glitch", t._x(7.0)) - 7.0) < 0.05
+assert t.effect_drop("gibtsnicht", t._x(7.0)) is None and t.effect_drop("glitch", 2) is None
+e = DEv(t._x(7.0), yf, Mime(tl.FX_MIME + "glitch")); t.dragEnterEvent(e); assert e.acc is True
+t.dropEvent(e); assert t.effect_dropped.calls[-1][0] == "glitch" and abs(t.effect_dropped.calls[-1][1] - 7.0) < 0.05
+n = len(t.effect_dropped.calls)
+e = DEv(2, yf, Mime(tl.FX_MIME + "glitch")); t.dropEvent(e); assert e.acc is False and len(t.effect_dropped.calls) == n
+# Dateien auf der Timeline werden an das Hauptfenster weitergereicht (Import wie bisher)
+class Win:
+    def __init__(s): s.got = []
+    def dragEnterEvent(s, ev): s.got.append("enter")
+    def dropEvent(s, ev): s.got.append("drop")
+t._win = Win()
+t.dragEnterEvent(DEv(5, 5, Mime("", urls=True))); t.dropEvent(DEv(5, 5, Mime("", urls=True)))
+assert t._win.got == ["enter", "drop"], t._win.got
+print("OK  Effekt-Spur (FX): verschieben, kürzen, Zeilen, Ablegen")
 print("Timeline-Mauslogik OK")

@@ -8,7 +8,7 @@ import textwrap
 from pathlib import Path
 from typing import Callable
 
-from ..paths import find_binary
+from ..paths import find_binary, resolve_font
 from . import audiomix, grade, presets
 from .effects import Ctx, build_graph
 from .project import Clip, Project, TextLayer, overlap
@@ -208,7 +208,7 @@ def _drawtext(layer: TextLayer, idx: int, W: int, H: int, tmpdir: Path) -> list[
     vertical = H > W
     ybase = {"top": "h*0.14", "center": "(h-text_h)/2",
              "bottom": "h*0.68" if vertical else "h*0.80"}.get(layer.position, "h*0.8")
-    font = layer.font or default_font()
+    font = resolve_font(layer.font) or default_font()
     fontopt = f"fontfile='{_esc_path(font)}':" if font else ""
     border = max(2, size // 14)
     S, E = float(layer.start), float(layer.end)
@@ -229,7 +229,7 @@ def _drawtext(layer: TextLayer, idx: int, W: int, H: int, tmpdir: Path) -> list[
     elif anim == "bounce":
         y = f"({ybase})-h*0.05*abs(sin((t-{S:.3f})*9))*max(0,1-(t-{S:.3f})/1.2)"
     elif anim == "shake":
-        x = f"(w-text_w)/2+w*0.006*sin(t*55)"
+        x = "(w-text_w)/2+w*0.006*sin(t*55)"
         y = f"({ybase})+h*0.004*cos(t*47)"
     elif anim == "blink":
         alpha = "if(lt(mod(t,0.8),0.5),1,0.15)"

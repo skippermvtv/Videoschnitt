@@ -9,11 +9,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.core.fontcheck import missing_chars  # noqa: E402
 from app.paths import find_binary  # noqa: E402
 
-FONT = Path(__file__).resolve().parent.parent / "fonts" / "ClipForgeMetal.ttf"
+FONT = Path(__file__).resolve().parent.parent / "fonts" / "FateMetal.ttf"
 
 
 def main() -> int:
-    assert FONT.exists(), "fonts/ClipForgeMetal.ttf fehlt"
+    assert FONT.exists(), "fonts/FateMetal.ttf fehlt"
     need = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÄÖÜäöü. 0123456789!?,:;-'\"+/()%"
     miss = missing_chars(str(FONT), need)
     assert not miss, f"Zeichen fehlen in der Schrift: {miss}"

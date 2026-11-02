@@ -1,20 +1,19 @@
-"""Hauptfenster von ClipForge."""
+"""Hauptfenster von FATE VIDEOSCHNITT."""
 from __future__ import annotations
 
 import copy
 import os
 import shutil
-import tempfile
 import time
 import uuid
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import QMimeData, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QKeySequence, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QDialog, QDialogButtonBox, QTextBrowser, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog,
+    QAbstractItemView, QApplication, QCheckBox, QDialog, QDialogButtonBox, QTextBrowser, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem,
     QMainWindow, QMessageBox, QPlainTextEdit, QProgressDialog, QPushButton, QSlider,
     QFrame, QScrollArea, QSizePolicy, QSplitter, QTabWidget, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
@@ -31,7 +30,7 @@ from ..core.project import (IMAGE_MAX, OVERLAY_CORNERS, TRACK_NAMES, AudioClip, 
                             TEXT_ANIMS, Project, SubtitleCue, TextLayer, is_image_path, probe, probe_audio)
 from ..version import APP_NAME, VERSION
 from .theme import ACCENT, MUTED
-from .timeline import Timeline
+from .timeline import FX_MIME, Timeline
 from .workers import ExportWorker, GradePreviewWorker, UpdateCheckWorker, UpdateDownloadWorker, WaveformWorker, AsrWorker, WhisperSetupWorker, DiagnoseWorker
 
 VIDEO_FILTER = ("Videos und Bilder (*.mp4 *.mov *.mkv *.avi *.webm *.m4v *.wmv *.flv *.mts *.m2ts "
@@ -40,6 +39,7 @@ LAYOUTS = [("", "Automatisch (vom Format)"), ("fit", "Einpassen (schwarze Balken
            ("fill", "Füllen (zuschneiden)"), ("blur", "Unscharfer Hintergrund")]
 AUDIO_FILTER = ("Audio und Videos (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus *.wma *.mp4 *.mov *.mkv *.webm);;"
                 "Alle Dateien (*)")
+FX_TAB = 2
 AUDIO_TAB = 5
 OVERLAY_TAB = 6
 SUBTITLE_TAB = 7
@@ -53,6 +53,17 @@ TEXT_POS = [("top", "Oben"), ("center", "Mitte"), ("bottom", "Unten")]
 def fmt_time(t: float) -> str:
     t = max(0.0, t)
     return f"{int(t // 60)}:{t % 60:04.1f}"
+
+
+class FxTree(QTreeWidget):
+    """Effektliste: Einträge lassen sich auf die FX-Spur der Timeline ziehen."""
+
+    def mimeData(self, items):
+        md = QMimeData()
+        ids = [it.data(0, Qt.ItemDataRole.UserRole) for it in items if it.data(0, Qt.ItemDataRole.UserRole)]
+        if ids:
+            md.setText(FX_MIME + ids[0])
+        return md
 
 
 class MainWindow(QMainWindow):
@@ -73,8 +84,7 @@ class MainWindow(QMainWindow):
         self._job_t0 = 0.0
         self._sub_color = "#ffffff"
         self._fonts: dict[str, str] = {}
-        self._fx_state: dict[str, dict] = {
-            e.id: {"intensity": e.default, "start": 0.0, "end": 0.0} for e in fx.REGISTRY.values()}
+        self.fsel = -1          # gewählter Effekt-Block auf der FX-Spur
         self._text_color = "#ffffff"
         self._cur_path = ""
         self._pending_seek: int | None = None
@@ -149,8 +159,9 @@ class MainWindow(QMainWindow):
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         brand = QLabel(APP_NAME)
+        brand.setWordWrap(True)            # „FATE VIDEOSCHNITT“ passt in zwei Zeilen
         f = QFont(getattr(self, "_brand_family", self.font().family()))
-        f.setPointSize(26)
+        f.setPointSize(22)
         brand.setFont(f)
         brand.setStyleSheet(f"color: {ACCENT};")
         lv.addWidget(brand)
@@ -208,6 +219,9 @@ class MainWindow(QMainWindow):
         self.timeline.clip_reordered.connect(self._reorder_clip)
         self.timeline.seek_requested.connect(self._seek_project)
         self.timeline.audio_edited.connect(self._on_audio_edited)
+        self.timeline.fx_selected.connect(self._select_fx)
+        self.timeline.fx_edited.connect(self._on_fx_edited)
+        self.timeline.effect_dropped.connect(self._on_fx_dropped)
         mv.addWidget(self.timeline)
 
         cb = QHBoxLayout()
@@ -322,8 +336,10 @@ class MainWindow(QMainWindow):
         row.addWidget(self.cmb_look, 1)
         v.addLayout(row)
 
-        self.fx_tree = QTreeWidget()
+        self.fx_tree = FxTree()
         self.fx_tree.setHeaderHidden(True)
+        self.fx_tree.setDragEnabled(True)
+        self.fx_tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
         for cat, items in fx.categories().items():
             top = QTreeWidgetItem([cat])
             top.setFlags(Qt.ItemFlag.ItemIsEnabled)
@@ -333,20 +349,26 @@ class MainWindow(QMainWindow):
             self.fx_tree.addTopLevelItem(top)
             for e in items:
                 it = QTreeWidgetItem([e.name])
-                it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsSelectable)
-                it.setCheckState(0, Qt.CheckState.Unchecked)
+                it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled)
                 it.setData(0, Qt.ItemDataRole.UserRole, e.id)
                 top.addChild(it)
             top.setExpanded(True)
-        self.fx_tree.itemChanged.connect(lambda *_: self._collect_effects())
-        self.fx_tree.currentItemChanged.connect(self._on_fx_selected)
+        self.fx_tree.itemDoubleClicked.connect(lambda *_: self.add_effect_block())
         v.addWidget(self.fx_tree, 1)
 
-        self.fx_box = QGroupBox("Einstellungen")
+        br = QHBoxLayout()
+        self.btn_fx_add = QPushButton("＋ Auf Effekt-Spur (am Abspielkopf)")
+        self.btn_fx_add.clicked.connect(lambda: self.add_effect_block())
+        self.btn_fx_del = QPushButton("Block entfernen")
+        self.btn_fx_del.clicked.connect(self.remove_effect_block)
+        br.addWidget(self.btn_fx_add, 1)
+        br.addWidget(self.btn_fx_del)
+        v.addLayout(br)
+
+        self.fx_box = QGroupBox("Gewählter Effekt-Block")
         fl = QFormLayout(self.fx_box)
         self.fx_int = QSlider(Qt.Orientation.Horizontal)
         self.fx_int.setRange(0, 100)
-        self.fx_int.valueChanged.connect(self._on_fx_param)
         self.fx_int_label = QLabel("0")
         ir = QHBoxLayout()
         ir.addWidget(self.fx_int, 1)
@@ -358,12 +380,15 @@ class MainWindow(QMainWindow):
             sp.setRange(0.0, 36000.0)
             sp.setSingleStep(0.5)
             sp.setSuffix(" s")
-            sp.valueChanged.connect(self._on_fx_param)
-        fl.addRow("Nur ab", self.fx_start)
+        fl.addRow("Von", self.fx_start)
         fl.addRow("… bis (0 = Ende)", self.fx_end)
+        self.fx_int.valueChanged.connect(self._on_fx_param)
+        self.fx_start.valueChanged.connect(self._on_fx_param)
+        self.fx_end.valueChanged.connect(self._on_fx_param)
         self.fx_box.setEnabled(False)
         v.addWidget(self.fx_box)
-        hint = QLabel("Haken setzen = Effekt an. Mit „Nur ab / bis“ wirkt ein Effekt nur in einem Zeitfenster (z. B. Glitch-Intro).")
+        hint = QLabel("Effekt aus der Liste auf die Spur „FX Effekte“ in der Timeline ziehen (oder doppelklicken). "
+                      "Block verschieben = anderer Zeitpunkt, Rand ziehen = Länge ändern. Beliebig viele Blöcke, auch vom selben Effekt.")
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {MUTED};")
         v.addWidget(hint)
@@ -548,7 +573,7 @@ class MainWindow(QMainWindow):
             c.grade.pop(key, None)
         else:
             c.grade[key] = float(val)
-        self.timeline.set_project(self.project, self.sel, self.asel, self.osel)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
         self._grade_timer.start()
 
     def _on_grade_preset(self, _idx: int) -> None:
@@ -557,7 +582,7 @@ class MainWindow(QMainWindow):
         if c is None or preset is None:
             return
         c.grade = gradelib.clean(preset.get("values", {}))
-        self.timeline.set_project(self.project, self.sel, self.asel, self.osel)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
         self._load_grade_fields()
         self.statusBar().showMessage(f"Voreinstellung „{preset['name']}“ auf den Clip angewendet – mit den Reglern nachjustieren.")
 
@@ -565,7 +590,7 @@ class MainWindow(QMainWindow):
         c = self._selected_clip()
         if c is not None:
             c.grade = {}
-            self.timeline.set_project(self.project, self.sel, self.asel, self.osel)
+            self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
             self._load_grade_fields()
 
     def apply_grade_to_all(self) -> None:
@@ -574,7 +599,7 @@ class MainWindow(QMainWindow):
             return
         for other in self.project.clips:
             other.grade = dict(c.grade)
-        self.timeline.set_project(self.project, self.sel, self.asel, self.osel)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
         self.statusBar().showMessage(f"Bildkorrektur auf alle {len(self.project.clips)} Clips angewendet.")
 
     def _update_grade_preview(self) -> None:
@@ -1173,32 +1198,18 @@ class MainWindow(QMainWindow):
             combo.setCurrentIndex(max(0, idx))
         self.sp_fade_in.setValue(p.fade_in)
         self.sp_fade_out.setValue(p.fade_out)
-        # Effekte
-        active = {e["id"]: e for e in p.effects}
-        for it in self._fx_items():
-            eid = it.data(0, Qt.ItemDataRole.UserRole)
-            if eid in active:
-                e = active[eid]
-                self._fx_state[eid] = {"intensity": e.get("intensity", 50),
-                                       "start": e.get("start") or 0.0, "end": e.get("end") or 0.0}
-                it.setCheckState(0, Qt.CheckState.Checked)
-            else:
-                it.setCheckState(0, Qt.CheckState.Unchecked)
+        # Effekte (Blöcke auf der FX-Spur)
+        self.fsel = min(self.fsel, len(p.effects) - 1)
         # Texte
         self.text_list.clear()
         for t in p.texts:
             self.text_list.addItem(self._text_title(t))
         self._loading = False
         self._update_format_info()
+        self._load_fx_fields()
         self._load_mix_fields()
         self._load_sub_list()
         self._load_sub_style()
-
-    def _fx_items(self):
-        for ci in range(self.fx_tree.topLevelItemCount()):
-            cat = self.fx_tree.topLevelItem(ci)
-            for j in range(cat.childCount()):
-                yield cat.child(j)
 
     def _update_format_info(self) -> None:
         f = presets.get("formats", self.project.format_id)
@@ -1240,65 +1251,101 @@ class MainWindow(QMainWindow):
         look = presets.get("looks", self.cmb_look.currentData() or "")
         if not look:
             return
-        self._loading = True
-        for it in self._fx_items():
-            it.setCheckState(0, Qt.CheckState.Unchecked)
+        out = []
         for entry in look.get("effects", []):
             eid, intensity = entry[0], entry[1]
-            start = entry[2] if len(entry) > 2 else 0.0
-            end = entry[3] if len(entry) > 3 else 0.0
-            if eid not in self._fx_state:
+            start = float(entry[2]) if len(entry) > 2 else 0.0
+            end = float(entry[3]) if len(entry) > 3 else 0.0
+            if eid not in fx.REGISTRY:
                 continue
-            self._fx_state[eid] = {"intensity": intensity, "start": float(start), "end": float(end)}
-            for it in self._fx_items():
-                if it.data(0, Qt.ItemDataRole.UserRole) == eid:
-                    it.setCheckState(0, Qt.CheckState.Checked)
-        self._loading = False
-        self.project.look_id = look["id"]
-        self._collect_effects()
-        self._on_fx_selected(self.fx_tree.currentItem(), None)
-
-    def _collect_effects(self) -> None:
-        if self._loading:
-            return
-        out = []
-        for it in self._fx_items():
-            if it.checkState(0) == Qt.CheckState.Checked:
-                eid = it.data(0, Qt.ItemDataRole.UserRole)
-                st = self._fx_state[eid]
-                entry = {"id": eid, "intensity": st["intensity"]}
-                if st["start"] > 0 or st["end"] > 0:
-                    entry["start"] = st["start"]
-                    entry["end"] = st["end"] if st["end"] > 0 else None
-                out.append(entry)
+            e = {"id": eid, "intensity": intensity}
+            if start > 0 or end > 0:
+                e["start"] = start
+                e["end"] = end if end > 0 else None
+            out.append(e)
         self.project.effects = out
+        self.project.look_id = look["id"]
+        self.fsel = -1
+        self._load_fx_fields()
+        self._refresh_timeline_only()
 
-    def _on_fx_selected(self, item, _prev) -> None:
-        eid = item.data(0, Qt.ItemDataRole.UserRole) if item else None
-        if not eid:
-            self.fx_box.setEnabled(False)
-            return
-        st = self._fx_state[eid]
-        self._loading = True
-        self.fx_box.setTitle(f"Einstellungen: {fx.REGISTRY[eid].name}")
-        self.fx_int.setValue(int(st["intensity"]))
-        self.fx_int_label.setText(str(int(st["intensity"])))
-        self.fx_start.setValue(st["start"])
-        self.fx_end.setValue(st["end"])
-        self._loading = False
-        self.fx_box.setEnabled(True)
-
-    def _on_fx_param(self) -> None:
-        self.fx_int_label.setText(str(self.fx_int.value()))
-        if self._loading:
-            return
+    def _current_effect_id(self) -> str | None:
         item = self.fx_tree.currentItem()
-        eid = item.data(0, Qt.ItemDataRole.UserRole) if item else None
-        if not eid:
+        return item.data(0, Qt.ItemDataRole.UserRole) if item else None
+
+    def add_effect_block(self, eid: str | None = None, at: float | None = None) -> None:
+        """Legt einen Effekt-Block auf der FX-Spur an (Standard: gewählter Effekt, am Abspielkopf)."""
+        eid = eid or self._current_effect_id()
+        if not eid or eid not in fx.REGISTRY:
+            self.statusBar().showMessage("Zuerst links einen Effekt aus der Liste wählen.")
             return
-        self._fx_state[eid] = {"intensity": self.fx_int.value(), "start": self.fx_start.value(),
-                               "end": self.fx_end.value()}
-        self._collect_effects()
+        if at is None:
+            at = self.timeline.playhead if self.timeline.playhead >= 0 else 0.0
+        i = self.project.fx_add(eid, fx.REGISTRY[eid].default, at)
+        self.project.look_id = "none"
+        self.fsel, self.asel, self.osel = i, -1, -1
+        self._load_fx_fields()
+        self._load_audio_fields()
+        self._load_overlay_fields()
+        self._refresh_timeline_only()
+        self.statusBar().showMessage(f"Effekt „{fx.REGISTRY[eid].name}“ auf die FX-Spur gelegt – ziehen zum Verschieben.")
+
+    def _on_fx_dropped(self, eid: str, t: float) -> None:
+        self.add_effect_block(eid, t)
+        self.tabs.setCurrentIndex(FX_TAB)
+
+    def remove_effect_block(self) -> None:
+        if not (0 <= self.fsel < len(self.project.effects)):
+            self.statusBar().showMessage("Zuerst einen Effekt-Block in der Timeline anklicken.")
+            return
+        del self.project.effects[self.fsel]
+        self.fsel = min(self.fsel, len(self.project.effects) - 1)
+        self._load_fx_fields()
+        self._refresh_timeline_only()
+
+    def _select_fx(self, idx: int) -> None:
+        self.fsel = idx
+        self.asel = self.osel = -1
+        self._load_audio_fields()
+        self._load_overlay_fields()
+        self._load_fx_fields()
+        self.tabs.setCurrentIndex(FX_TAB)
+
+    def _on_fx_edited(self, idx: int) -> None:
+        if idx == self.fsel:
+            self._load_fx_fields()
+
+    def _load_fx_fields(self) -> None:
+        ok = 0 <= self.fsel < len(self.project.effects)
+        self.fx_box.setEnabled(ok)
+        self.btn_fx_del.setEnabled(ok)
+        if not ok:
+            self.fx_box.setTitle("Gewählter Effekt-Block (keiner gewählt – in der Timeline anklicken)")
+            return
+        e = self.project.effects[self.fsel]
+        s0, t0 = self.project.fx_span(self.fsel)
+        whole_end = e.get("end") is None
+        was = self._loading
+        self._loading = True
+        eff = fx.REGISTRY.get(e["id"])
+        self.fx_box.setTitle(f"Gewählter Effekt-Block: {eff.name if eff else e['id']}")
+        self.fx_int.setValue(int(e.get("intensity", 50)))
+        self.fx_int_label.setText(str(int(e.get("intensity", 50))))
+        self.fx_start.setValue(s0)
+        self.fx_end.setValue(0.0 if whole_end else t0)
+        self._loading = was
+
+    def _on_fx_param(self, *_args) -> None:
+        self.fx_int_label.setText(str(self.fx_int.value()))
+        if self._loading or not (0 <= self.fsel < len(self.project.effects)):
+            return
+        e = self.project.effects[self.fsel]
+        e["intensity"] = self.fx_int.value()
+        start = self.fx_start.value()
+        end = self.fx_end.value()
+        total = self.project.duration
+        self.project.fx_set_span(self.fsel, start, end if end > 0 else (total if total > 0 else start + self.project.FX_MIN))
+        self._refresh_timeline_only()
 
     # --------------------------------------------------------- Text-Handler
     @staticmethod
@@ -1351,7 +1398,7 @@ class MainWindow(QMainWindow):
         self.text_size.setValue(t.size_pct)
         self.text_start.setValue(t.start)
         self.text_end.setValue(t.end)
-        idx = self.text_font.findData(t.font)
+        idx = self.text_font.findData(paths.resolve_font(t.font))
         self.text_font.setCurrentIndex(idx if idx >= 0 else max(0, self.text_font.count() - 1))
         self._text_color = t.color if t.color.startswith("#") else "#ffffff"
         self._style_color_button()
@@ -1466,16 +1513,21 @@ class MainWindow(QMainWindow):
             self.asel = len(self.project.audio_clips) - 1
         if self.osel >= len(self.project.overlays):
             self.osel = len(self.project.overlays) - 1
-        self.timeline.set_project(self.project, self.sel, self.asel, self.osel)
+        if self.fsel >= len(self.project.effects):
+            self.fsel = len(self.project.effects) - 1
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
         self.dur_label.setText(f"Gesamtlänge: {fmt_time(self.project.duration)}")
         self._load_clip_fields()
         self._load_audio_fields()
         self._load_overlay_fields()
+        self._load_fx_fields()
 
     def _select_clip(self, idx: int) -> None:
         self.sel = idx
         self.asel = -1
         self.osel = -1
+        self.fsel = -1
+        self._load_fx_fields()
         self._load_clip_fields()
         self._load_audio_fields()
         self._load_overlay_fields()
@@ -1572,7 +1624,7 @@ class MainWindow(QMainWindow):
         c.transition = str(self.clip_trans.currentData() or "")
         c.transition_dur = self.clip_trans_dur.value()
         self.project.sync_linked()
-        self.timeline.set_project(self.project, self.sel, self.asel, self.osel)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
         self.dur_label.setText(f"Gesamtlänge: {fmt_time(self.project.duration)}")
 
     # ----------------------------------------------- Drehen / Zuschneiden / Bewegung
@@ -1719,7 +1771,7 @@ class MainWindow(QMainWindow):
         self._refresh_timeline_only()
 
     def _refresh_timeline_only(self) -> None:
-        self.timeline.set_project(self.project, self.sel, self.asel, self.osel)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
 
     # --------------------------------------------------------------- Untertitel
     @staticmethod
@@ -1734,7 +1786,7 @@ class MainWindow(QMainWindow):
         for name, path in self._fonts.items():
             self.sub_font.addItem(name, path)
         self.sub_font.addItem("Standardschrift", "")
-        idx = self.sub_font.findData(cur)
+        idx = self.sub_font.findData(paths.resolve_font(cur))
         self.sub_font.setCurrentIndex(idx if idx >= 0 else max(0, self.sub_font.count() - 1))
         self.sub_font.blockSignals(False)
 
@@ -1911,7 +1963,7 @@ class MainWindow(QMainWindow):
             return
         o.x_pct, o.y_pct = OVERLAY_CORNERS[key]
         self._load_overlay_fields()
-        self.timeline.set_project(self.project, self.sel, self.asel, self.osel)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
 
     def _on_overlay_field(self, *_args) -> None:
         o = self._selected_overlay()
@@ -1928,11 +1980,13 @@ class MainWindow(QMainWindow):
         o.fade_in = self.ov_fin.value()
         o.fade_out = self.ov_fout.value()
         o.border = self.ov_border.isChecked()
-        self.timeline.set_project(self.project, self.sel, self.asel, self.osel)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
 
     def _select_overlay(self, idx: int) -> None:
         self.osel = idx
         self.asel = -1
+        self.fsel = -1
+        self._load_fx_fields()
         self._load_audio_fields()
         self._load_overlay_fields()
         self.tabs.setCurrentIndex(OVERLAY_TAB)
@@ -2027,11 +2081,13 @@ class MainWindow(QMainWindow):
             i = self.project.clip_index(a.link)
             if i >= 0:
                 a.link_offset = a.start - self.project.clip_start(i)
-        self.timeline.set_project(self.project, self.sel, self.asel, self.osel)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
 
     def _select_audio(self, idx: int) -> None:
         self.asel = idx
         self.osel = -1
+        self.fsel = -1
+        self._load_fx_fields()
         self._load_overlay_fields()
         self._load_audio_fields()
         self.tabs.setCurrentIndex(AUDIO_TAB)
@@ -2073,7 +2129,7 @@ class MainWindow(QMainWindow):
         p.ducking = self.mix_duck.isChecked()
         p.ducking_amount = self.mix_duck_amount.value() / 100.0
         p.normalize = self.mix_norm.isChecked()
-        self.timeline.set_project(self.project, self.sel, self.asel, self.osel)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
 
     def add_audio_dialog(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(self, "Musik / Audio hinzufügen", "", AUDIO_FILTER)
@@ -2147,7 +2203,9 @@ class MainWindow(QMainWindow):
         self._refresh_timeline()
 
     def delete_selected(self) -> None:
-        if self.osel >= 0:
+        if self.fsel >= 0:
+            self.remove_effect_block()
+        elif self.osel >= 0:
             self.remove_overlay()
         elif self.asel >= 0:
             self.remove_audio()
@@ -2289,7 +2347,7 @@ class MainWindow(QMainWindow):
         if idx == self.sel:
             self._load_clip_fields()
         self.dur_label.setText(f"Gesamtlänge: {fmt_time(self.project.duration)}")
-        self.timeline.set_project(self.project, self.sel, self.asel, self.osel)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
 
     def _reorder_clip(self, src: int, dst: int) -> None:
         cl = self.project.clips
@@ -2308,16 +2366,18 @@ class MainWindow(QMainWindow):
                 break
         c = cl[idx]
         local = max(0.0, min(c.length, t - self.project.clip_start(idx)))
-        if idx != self.sel or self.asel >= 0 or self.osel >= 0:
+        if idx != self.sel or self.asel >= 0 or self.osel >= 0 or self.fsel >= 0:
             self.sel = idx
             self.asel = -1
             self.osel = -1
+            self.fsel = -1
+            self._load_fx_fields()
             self._load_overlay_fields()
             self._load_clip_fields()
             self._load_audio_fields()
         src_ms = int((c.in_pt + local * c.speed) * 1000)
         self._open_media(c.path, src_ms, int(c.out_pt * 1000), autoplay=False)
-        self.timeline.set_project(self.project, self.sel, self.asel, self.osel)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
         self.timeline.set_playhead(t)
 
     # --------------------------------------------------------------- Player
@@ -2521,7 +2581,7 @@ class MainWindow(QMainWindow):
 
     # -------------------------------------------------------------- Projekt
     def save_project(self) -> None:
-        f, _ = QFileDialog.getSaveFileName(self, "Projekt speichern", self._project_file or "Projekt.cforge", "ClipForge-Projekt (*.cforge)")
+        f, _ = QFileDialog.getSaveFileName(self, "Projekt speichern", self._project_file or "Projekt.cforge", f"{APP_NAME}-Projekt (*.cforge)")
         if f:
             self.project.save(f)
             self._saved_state = self.project.to_json()
@@ -2530,7 +2590,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Gespeichert: {f}")
 
     def open_project(self) -> None:
-        f, _ = QFileDialog.getOpenFileName(self, "Projekt öffnen", "", "ClipForge-Projekt (*.cforge)")
+        f, _ = QFileDialog.getOpenFileName(self, "Projekt öffnen", "", f"{APP_NAME}-Projekt (*.cforge)")
         if not f:
             return
         try:
@@ -2631,7 +2691,7 @@ class MainWindow(QMainWindow):
         if subs.find_whisper_model() is None:
             label, ok = QInputDialog.getItem(
                 self, "Spracherkennung einrichten",
-                "Für automatische Untertitel lädt ClipForge das kostenlose whisper.cpp und ein Sprachmodell herunter.\n"
+                f"Für automatische Untertitel lädt {APP_NAME} das kostenlose whisper.cpp und ein Sprachmodell herunter.\n"
                 "Die Erkennung läuft danach komplett auf deinem PC.\n\nWelches Modell?", labels, 1, False)
             if not ok:
                 return
@@ -2715,7 +2775,7 @@ class MainWindow(QMainWindow):
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Warning)
             box.setWindowTitle("Unerwarteter Fehler")
-            box.setText("Hier ist etwas schiefgelaufen. ClipForge läuft weiter; speichere sicherheitshalber dein Projekt.\n\n"
+            box.setText(f"Hier ist etwas schiefgelaufen. {APP_NAME} läuft weiter; speichere sicherheitshalber dein Projekt.\n\n"
                         "Mit „Bericht kopieren“ kannst du den Fehler weitergeben.")
             box.setDetailedText(text)
             b_copy = box.addButton("Bericht kopieren", QMessageBox.ButtonRole.ActionRole)

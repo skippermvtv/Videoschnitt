@@ -17,7 +17,7 @@ from app.core.project import Clip, Project, SubtitleCue, TextLayer, probe  # noq
 from app.paths import find_binary  # noqa: E402
 
 ff = find_binary("ffmpeg")
-FONT = str(Path(__file__).resolve().parent.parent / "fonts" / "ClipForgeMetal.ttf")
+FONT = str(Path(__file__).resolve().parent.parent / "fonts" / "FateMetal.ttf")
 
 
 def sh(*a):

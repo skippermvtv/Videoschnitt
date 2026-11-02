@@ -1,6 +1,7 @@
-"""Timeline mit Spuren: V1 (Video) und A1 Ton, A2 Musik, A3 frei.
+"""Timeline mit Spuren: FX (Effekte), V2 (Bild-in-Bild), V1 (Video) und A1 Ton, A2 Musik, A3 frei.
 
 Maus:
+- Effekte: aus der Effektliste auf die FX-Spur ziehen; Block verschieben = Zeitpunkt ändern, Rand ziehen = Länge ändern.
 - Klick wählt aus; Klick auf das Zeitlineal setzt den Abspielkopf.
 - Videoclips: Rand ziehen = kürzen, in der Mitte ziehen = Reihenfolge ändern.
 - Audioblöcke: ziehen = verschieben (auch auf andere Spur), Rand ziehen = kürzen; rasten an Clipgrenzen ein.
@@ -12,13 +13,19 @@ from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
+from ..core import effects as fxlib
 from ..core.audiomix import effective_volume
 from .theme import ACCENT, MUTED, PANEL
 
 _COLORS = ["#3d5a80", "#5b7f5b", "#80603d", "#6b3d80", "#3d8080", "#80453d"]
 _AUDIO_COLORS = {1: "#2f7d6b", 2: "#7d5ba6", 3: "#a6823d"}
-LANE_LABELS = ["V1", "A1 Ton", "A2 Musik", "A3 frei", "V2 Bild-in-Bild"]
-LANE_ORDER = [4, 0, 1, 2, 3]       # von oben nach unten
+LANE_LABELS = ["V1", "A1 Ton", "A2 Musik", "A3 frei", "V2 Bild-in-Bild", "FX Effekte"]
+LANE_ORDER = [5, 4, 0, 1, 2, 3]    # von oben nach unten
+FX_LANE = 5
+FX_COLOR = "#a63d6b"
+FX_ROW_H = 18.0
+FX_MAX_ROWS = 3
+FX_MIME = "fate-effect:"
 OV_COLOR = "#b8672f"
 LABEL_W = 66.0
 RULER_H = 28.0
@@ -40,16 +47,23 @@ class Timeline(QWidget):
     overlay_selected = Signal(int)
     overlay_edited = Signal(int)
     audio_edited = Signal(int)             # während/nach dem Ziehen
+    fx_selected = Signal(int)
+    fx_edited = Signal(int)                # Effekt-Block wurde verschoben oder in der Länge geändert
+    effect_dropped = Signal(str, float)    # (Effekt-ID, Projektzeit) – aus der Effektliste abgelegt
     seek_requested = Signal(float)         # Projektzeit in Sekunden
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(int(RULER_H + V2_H + V_H + 3 * A_H + 6 * GAP + 6))
+        self.setMinimumHeight(int(RULER_H + FX_ROW_H * FX_MAX_ROWS + 6 + V2_H + V_H + 3 * A_H + 7 * GAP + 6))
         self.setMouseTracking(True)
+        self.setAcceptDrops(True)
         self._project = None
         self._sel = -1
         self._asel = -1
         self._osel = -1
+        self._fsel = -1
+        self._frects: list[tuple[int, QRectF]] = []
+        self._fx_rows: list[int] = []
         self._orects: list[tuple[int, QRectF]] = []
         self._waves: dict = {}
         self._vrects: list[QRectF] = []
@@ -61,11 +75,14 @@ class Timeline(QWidget):
         self._drop_t = -1.0
 
     # ------------------------------------------------------------ Daten
-    def set_project(self, project, selected: int, audio_selected: int = -1, overlay_selected: int = -1) -> None:
+    def set_project(self, project, selected: int, audio_selected: int = -1, overlay_selected: int = -1,
+                    fx_selected: int = -1) -> None:
         self._project = project
         self._sel = selected
         self._asel = audio_selected
         self._osel = overlay_selected
+        self._fsel = fx_selected
+        self._fx_rows = project.fx_rows(FX_MAX_ROWS) if project is not None else []
         self._clamp_view()
         self.update()
 
@@ -122,12 +139,16 @@ class Timeline(QWidget):
     def _in_content(self, x: float) -> bool:
         return 12.0 + LABEL_W <= x <= 12.0 + LABEL_W + self._avail()
 
-    @staticmethod
-    def _lane_h(lane: int) -> float:
+    def _fx_row_count(self) -> int:
+        return (max(self._fx_rows) + 1) if self._fx_rows else 1
+
+    def _lane_h(self, lane: int) -> float:
+        if lane == FX_LANE:
+            return FX_ROW_H * self._fx_row_count() + 6.0
         return V_H if lane == 0 else V2_H if lane == 4 else A_H
 
     def _lane_y(self, lane: int) -> float:
-        """lane 0 = V1, 1..3 = A1..A3, 4 = V2 (oben)"""
+        """lane 0 = V1, 1..3 = A1..A3, 4 = V2, 5 = FX (ganz oben)"""
         y = RULER_H
         for ln in LANE_ORDER:
             if ln == lane:
@@ -155,13 +176,13 @@ class Timeline(QWidget):
         self._vrects = []
         self._arects = []
         self._orects = []
+        self._frects = []
         proj = self._project
         if proj is None or (not proj.clips and not proj.audio_clips and not proj.overlays):
             p.setPen(QColor(MUTED))
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
                        "Noch keine Clips – links Dateien importieren und zur Timeline hinzufügen")
             return
-        total = self._total()
         span = self._span()
         avail = self._avail()
         left = 12.0 + LABEL_W
@@ -177,7 +198,7 @@ class Timeline(QWidget):
             p.drawText(QRectF(12, y, LABEL_W - 6, h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, label)
 
         p.setClipRect(QRectF(left, 0, avail, self.height()))
-        for lane in range(5):
+        for lane in range(6):
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor("#161920"))
             p.drawRoundedRect(QRectF(left, self._lane_y(lane), avail, self._lane_h(lane)), 4, 4)
@@ -199,7 +220,7 @@ class Timeline(QWidget):
             r = QRectF(self._x(t0) + 1, y, max(6.0, c.length / span * avail - 2), V_H)
             self._vrects.append(r)
             p.setBrush(QColor(_COLORS[i % len(_COLORS)]))
-            p.setPen(QPen(QColor(ACCENT), 3) if i == self._sel and self._asel < 0 and self._osel < 0 else Qt.PenStyle.NoPen)
+            p.setPen(QPen(QColor(ACCENT), 3) if i == self._sel and self._asel < 0 and self._osel < 0 and self._fsel < 0 else Qt.PenStyle.NoPen)
             p.drawRoundedRect(r, 5, 5)
             p.setPen(QColor("white"))
             label = c.name + f"  {c.length:.1f} s"
@@ -216,6 +237,25 @@ class Timeline(QWidget):
             if getattr(c, "transition", "") and i < len(proj.clips) - 1:
                 label += "  ⇄"
             p.drawText(r.adjusted(5, 3, -5, -3), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, label)
+
+        # Effekte (FX): jeder Block ist ein Effekt mit Zeitfenster
+        fy = self._lane_y(FX_LANE)
+        for fi, e in enumerate(proj.effects):
+            f0, f1 = proj.fx_span(fi)
+            x0, x1 = self._x(f0), self._x(f1)
+            if x1 <= x0:
+                continue
+            row = self._fx_rows[fi] if fi < len(self._fx_rows) else 0
+            r = QRectF(x0, fy + 3.0 + row * FX_ROW_H, max(6.0, x1 - x0), FX_ROW_H - 2.0)
+            self._frects.append((fi, r))
+            p.setBrush(QColor(FX_COLOR))
+            p.setPen(QPen(QColor(ACCENT), 3) if fi == self._fsel else Qt.PenStyle.NoPen)
+            p.drawRoundedRect(r, 4, 4)
+            p.setPen(QColor("white"))
+            eff = fxlib.REGISTRY.get(e.get("id"))
+            name = eff.name if eff else str(e.get("id"))
+            p.drawText(r.adjusted(5, 0, -4, 0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                       f"{name}  {int(e.get('intensity', 0))} %")
 
         # Bild-in-Bild (V2)
         oy = self._lane_y(4)
@@ -304,6 +344,17 @@ class Timeline(QWidget):
                 return idx, mode
         return -1, ""
 
+    def _hit_fx(self, pos):
+        for idx, r in reversed(self._frects):
+            if r.contains(pos):
+                mode = "move"
+                if pos.x() - r.left() <= EDGE:
+                    mode = "trim_l"
+                elif r.right() - pos.x() <= EDGE:
+                    mode = "trim_r"
+                return idx, mode
+        return -1, ""
+
     def _hit_overlay(self, pos):
         for idx, r in reversed(self._orects):
             if r.contains(pos):
@@ -337,10 +388,18 @@ class Timeline(QWidget):
             return
         if not self._in_content(pos.x()):
             return
+        fi, fmode = self._hit_fx(pos)
+        if fi >= 0:
+            s0, t0 = self._project.fx_span(fi)
+            self._fsel, self._osel, self._asel = fi, -1, -1
+            self._drag = {"kind": "f", "idx": fi, "mode": fmode, "x": pos.x(), "start": s0, "end": t0}
+            self.fx_selected.emit(fi)
+            self.update()
+            return
         oi, omode = self._hit_overlay(pos)
         if oi >= 0:
             o = self._project.overlays[oi]
-            self._osel, self._asel = oi, -1
+            self._osel, self._asel, self._fsel = oi, -1, -1
             self._drag = {"kind": "o", "idx": oi, "mode": omode, "x": pos.x(), "start": o.start, "in": o.in_pt,
                           "out": o.out_pt}
             self.overlay_selected.emit(oi)
@@ -351,6 +410,7 @@ class Timeline(QWidget):
             a = self._project.audio_clips[idx]
             self._asel = idx
             self._osel = -1
+            self._fsel = -1
             self._drag = {"kind": "a", "idx": idx, "mode": mode, "x": pos.x(), "start": a.start, "in": a.in_pt,
                           "out": a.out_pt, "track": a.track}
             self.audio_selected.emit(idx)
@@ -362,13 +422,17 @@ class Timeline(QWidget):
             self._sel = i
             self._asel = -1
             self._osel = -1
+            self._fsel = -1
             self._drag = {"kind": "v", "idx": i, "mode": mode, "x": pos.x(), "in": c.in_pt, "out": c.out_pt,
                           "started": False}
             self.clip_selected.emit(i)
             self.update()
 
-    def _snap_points(self, skip: int) -> list[float]:
+    def _snap_points(self, skip: int, skip_fx: int = -1) -> list[float]:
         pts = [0.0, self._total()]
+        for k in range(len(self._project.effects)):
+            if k != skip_fx:
+                pts += list(self._project.fx_span(k))
         for i, c in enumerate(self._project.clips):
             t = self._project.clip_start(i)
             pts += [t, t + c.length]
@@ -391,10 +455,11 @@ class Timeline(QWidget):
             return
         pos = event.position()
         if self._drag is None:
-            _, om = self._hit_overlay(pos)
-            _, am = self._hit_audio(pos) if not om else (-1, "")
-            _, vm = self._hit_video(pos) if not (am or om) else (-1, "")
-            mode = om or am or vm
+            _, fm = self._hit_fx(pos)
+            _, om = self._hit_overlay(pos) if not fm else (-1, "")
+            _, am = self._hit_audio(pos) if not (om or fm) else (-1, "")
+            _, vm = self._hit_video(pos) if not (am or om or fm) else (-1, "")
+            mode = fm or om or am or vm
             self.setCursor(Qt.CursorShape.SizeHorCursor if mode in ("trim_l", "trim_r")
                            else Qt.CursorShape.OpenHandCursor if mode == "move" else Qt.CursorShape.ArrowCursor)
             return
@@ -408,6 +473,38 @@ class Timeline(QWidget):
             self._move_audio(d, pos)
         elif kind == "o":
             self._move_overlay(d, pos)
+        elif kind == "f":
+            self._move_fx(d, pos)
+
+    def _move_fx(self, d: dict, pos) -> None:
+        """Effekt-Block verschieben (rastet an Clipgrenzen und anderen Blöcken ein) oder an einem Rand kürzen/verlängern."""
+        proj = self._project
+        dt = (pos.x() - d["x"]) / self._avail() * self._span()
+        pts = self._snap_points(-1, d["idx"])
+        s0, t0 = d["start"], d["end"]
+        if d["mode"] == "move":
+            start = max(0.0, s0 + dt)
+            s1 = self._snap(start, pts)
+            s2 = self._snap(start + (t0 - s0), pts) - (t0 - s0)
+            d1, d2 = abs(s1 - start), abs(s2 - start)
+            if d1 > 1e-9 and (d2 < 1e-9 or d1 <= d2):
+                start = s1
+            elif d2 > 1e-9:
+                start = s2
+            start = max(0.0, start)
+            total = proj.duration
+            if total > 0:
+                start = min(start, max(0.0, total - (t0 - s0)))
+            proj.fx_set_span(d["idx"], start, start + (t0 - s0))
+        elif d["mode"] == "trim_l":
+            start = self._snap(max(0.0, min(s0 + dt, t0 - proj.FX_MIN)), pts)
+            proj.fx_set_span(d["idx"], min(start, t0 - proj.FX_MIN), t0)
+        else:
+            end = self._snap(max(s0 + proj.FX_MIN, t0 + dt), pts)
+            proj.fx_set_span(d["idx"], s0, max(end, s0 + proj.FX_MIN))
+        self._fx_rows = proj.fx_rows(FX_MAX_ROWS)
+        self.fx_edited.emit(d["idx"])
+        self.update()
 
     def _move_video(self, d: dict, pos) -> None:
         c = self._project.clips[d["idx"]]
@@ -506,6 +603,8 @@ class Timeline(QWidget):
             return
         if d["kind"] == "a":
             self.audio_edited.emit(d["idx"])
+        elif d["kind"] == "f":
+            self.fx_edited.emit(d["idx"])
         elif d["kind"] == "o":
             self.overlay_edited.emit(d["idx"])
         elif d["kind"] == "v":
@@ -514,6 +613,66 @@ class Timeline(QWidget):
             elif d["mode"] != "move":
                 self.clip_edited.emit(d["idx"])
         self.update()
+
+    # ------------------------------------------------------------ Ablegen aus der Effektliste
+    @staticmethod
+    def _mime_effect(mime) -> str:
+        try:
+            text = mime.text() if mime.hasText() else ""
+        except Exception:  # noqa: BLE001
+            return ""
+        return text[len(FX_MIME):] if text.startswith(FX_MIME) else ""
+
+    def effect_drop(self, effect_id: str, x: float) -> float | None:
+        """Wird ein Effekt an der Stelle x abgelegt? Gibt die Projektzeit zurück oder None (außerhalb der Zeitleiste)."""
+        if self._project is None or effect_id not in fxlib.REGISTRY or not self._in_content(x):
+            return None
+        return max(0.0, self._t_at(x))
+
+    def _forward_to_window(self, name: str, event) -> None:
+        """Dateien, die auf die Timeline gezogen werden, behandelt wie bisher das Hauptfenster (Import)."""
+        w = self.window()
+        if w is not None and w is not self and hasattr(w, name):
+            getattr(w, name)(event)
+        else:
+            event.ignore()
+
+    def dragEnterEvent(self, event):
+        if self._mime_effect(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            self._forward_to_window("dragEnterEvent", event)
+
+    def dragMoveEvent(self, event):
+        eid = self._mime_effect(event.mimeData())
+        if not eid:
+            event.acceptProposedAction() if event.mimeData().hasUrls() else event.ignore()
+            return
+        t = self.effect_drop(eid, event.position().x())
+        self._drop_t = -1.0 if t is None else t
+        self.update()
+        if t is None:
+            event.ignore()
+        else:
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self._drop_t = -1.0
+        self.update()
+
+    def dropEvent(self, event):
+        eid = self._mime_effect(event.mimeData())
+        if not eid:
+            self._forward_to_window("dropEvent", event)
+            return
+        t = self.effect_drop(eid, event.position().x())
+        self._drop_t = -1.0
+        self.update()
+        if t is None:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        self.effect_dropped.emit(eid, t)
 
     def wheelEvent(self, event):
         if self._project is None:
