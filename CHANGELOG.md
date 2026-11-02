@@ -1,5 +1,15 @@
 # Änderungen
 
+## 1.3.0
+- **Farbräder** (Schatten, Mitten, Lichter) im Reiter „Bild“: ziehen = Farbstich, Doppelklick = zurücksetzen.
+- **Kurven-Editor** für Helligkeit, Rot, Grün und Blau (bis 12 Punkte). Die gezeichnete Kurve entspricht dem Ergebnis von FFmpeg.
+- **LUT-Import** (`.cube` 3D/1D, `.3dl`) mit Stärke-Regler. Die Datei wird in den Datenordner kopiert, wird sie gelöscht, meldet es „Fehlende Dateien suchen“. Unvollständige oder falsche LUTs werden beim Laden abgelehnt.
+- **Chroma-Key (Greenscreen)** für Bild-in-Bild: Grün, Blau oder eigene Farbe, Toleranz, weiche Kante, Farbsaum entfernen, „Als Vollbild darüberlegen“.
+- 4 neue Bild-Voreinstellungen: Teal & Orange, S-Kurve, Verblasster Film, Cyber.
+- Alte Projekte laden unverändert; neue Felder haben neutrale Standardwerte.
+- Neue Tests: `test_color13.py` (Pixelprüfung mit echtem FFmpeg, LUT-Pfade mit Sonderzeichen, Greenscreen), `test_color13_logic.py` (Farbrad, Kurvenpunkte, Spline gegen FFmpeg), erweiterte Fenster-Tests.
+- Noch nicht in 1.3.0: Masken, Tracking, Videostabilisierung (kommen in 1.3.1).
+
 ## 1.2.1
 - Zweite Fehlersuche nach 1.2.0:
   - Tests rufen FFmpeg jetzt über das mitgelieferte Programm auf (vorher über den Namen `ffmpeg`, was auf dem Build-Server rot geworden wäre).

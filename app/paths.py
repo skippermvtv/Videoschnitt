@@ -44,6 +44,12 @@ def user_fonts_dir() -> Path:
     return p
 
 
+def user_luts_dir() -> Path:
+    p = user_dir() / "luts"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
 def find_binary(name: str) -> str:
     """Findet ffmpeg/ffprobe: erst mitgeliefert, dann im PATH."""
     exe = name + (".exe" if os.name == "nt" else "")

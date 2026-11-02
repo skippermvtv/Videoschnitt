@@ -92,6 +92,61 @@ def main() -> int:
     win._grade_timer.stop()
     app.processEvents()
 
+    # 1.3: Farbräder, Kurven-Editor und LUT mit echten Mausereignissen
+    from PySide6.QtCore import QPoint, Qt as _Qt
+    from PySide6.QtTest import QTest
+    g = win.project.clips[0].grade
+    wheel = win.wheels["gain"]
+    wheel.resize(120, 120)
+    app.processEvents()
+    QTest.mouseClick(wheel, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, QPoint(100, 60))   # rechts von der Mitte = rot
+    assert g.get("gain_r", 0) > 20 and g.get("gain_g", 0) < 0, g
+    assert wheel.rgb()[0] == g["gain_r"]
+    QTest.mouseDClick(wheel, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, QPoint(100, 60))
+    assert "gain_r" not in g and wheel.rgb() == (0, 0, 0), (g, wheel.rgb())
+    assert not wheel.grab().isNull()
+    ed = win.curve_editor
+    ed.resize(220, 220)
+    app.processEvents()
+    assert ed.curves() == {}
+    QTest.mouseClick(ed, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, QPoint(110, 60))     # Punkt oben in der Mitte
+    cur = g.get("curves", {}).get("m")
+    assert cur and len(cur) == 3 and cur[1][1] > 0.6, g
+    QTest.mouseClick(ed, _Qt.MouseButton.RightButton, _Qt.KeyboardModifier.NoModifier, QPoint(110, 60))   # wieder löschen
+    assert "curves" not in g, g
+    win.cmb_curve.setCurrentIndex(win.cmb_curve.findData("r"))
+    assert ed.channel() == "r"
+    QTest.mouseClick(ed, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, QPoint(110, 60))
+    assert "r" in g.get("curves", {}) and "m" not in g["curves"], g
+    assert not ed.grab().isNull()
+    win.reset_curve()
+    assert "curves" not in g, g
+    os.environ["APPDATA"] = tempfile.mkdtemp()
+    cube = str(Path(tempfile.mkdtemp()) / "t.cube")
+    Path(cube).write_text("LUT_3D_SIZE 2\n" + "\n".join(f"{r} {gg} {b}" for b in (0, 1) for gg in (0, 1) for r in (0, 1)) + "\n", encoding="utf-8")
+    assert win.set_lut(cube) and g["lut"].endswith(".cube") and win.btn_lut_clear.isEnabled()
+    win.lut_mix.setValue(40)
+    assert g.get("lut_mix") == 40.0
+    win._update_grade_preview()                  # Vorher/Nachher mit LUT-Mischung
+    for _ in range(120):
+        app.processEvents()
+        time.sleep(0.05)
+        if win._grade_worker is None:
+            break
+    assert win._grade_worker is None and not win.grade_preview.pixmap().isNull()
+    win.clear_lut()
+    assert "lut" not in g and not win.btn_lut_clear.isEnabled()
+    win.cmb_grade.setCurrentIndex(win.cmb_grade.findData("s_curve"))
+    win._on_grade_preset(0)
+    g = win.project.clips[0].grade                 # das Preset ersetzt das Dict
+    assert "curves" in g and win.curve_editor.curves() == g["curves"], g
+    win.cmb_grade.setCurrentIndex(win.cmb_grade.findData("teal_orange"))
+    win._on_grade_preset(0)
+    g = win.project.clips[0].grade
+    assert g.get("lift_b", 0) > 0 and win.wheels["lift"].rgb()[2] == g["lift_b"], g
+    win.reset_grade()
+    win._grade_timer.stop()
+
     # Übergang (Clip 2 anlegen, Übergang von Clip 1 setzen)
     win._add_to_timeline(vid)
     win._select_clip(0)
@@ -144,6 +199,21 @@ def main() -> int:
     assert abs(o.size_pct - 40.0) < 1e-6 and (o.x_pct, o.y_pct) == (22.0, 78.0), (o.x_pct, o.y_pct)
     win.timeline.update()
     app.processEvents()
+    # 1.3: Chroma-Key (Greenscreen) mit echten Feldern
+    win.ov_key_on.setChecked(True)
+    assert o.key_color == "#00ff00" and win.ov_key_on.isChecked()
+    win.ov_key_blue.click()
+    assert o.key_color == "#0000ff"
+    win.ov_key_sim.setValue(55.0)
+    win.ov_key_blend.setValue(10.0)
+    win.ov_key_spill.setChecked(False)
+    assert (o.key_similarity, o.key_blend, o.key_spill) == (55.0, 10.0, False), (o.key_similarity, o.key_blend, o.key_spill)
+    win.ov_key_full.click()
+    assert (o.x_pct, o.y_pct, o.size_pct) == (50.0, 50.0, 100.0)
+    win._select_overlay(0)                       # Felder neu laden: Werte bleiben stehen
+    assert win.ov_key_on.isChecked() and win.ov_key_sim.value() == 55.0 and not win.ov_key_spill.isChecked()
+    win.ov_key_on.setChecked(False)
+    assert o.key_color == "" and not win.ov_key_on.isChecked()
     win.remove_overlay()
     assert not win.project.overlays
 

@@ -29,6 +29,7 @@ from ..core.helptext import help_html
 from ..core.project import (IMAGE_MAX, OVERLAY_CORNERS, TRACK_NAMES, AudioClip, Clip, MediaInfo, OverlayClip,
                             TEXT_ANIMS, Project, SubtitleCue, TextLayer, is_image_path, probe, probe_audio)
 from ..version import APP_NAME, VERSION
+from .colorwidgets import ColorWheel, CurveEditor
 from .theme import ACCENT, MUTED
 from .timeline import FX_MIME, Timeline
 from .workers import ExportWorker, GradePreviewWorker, UpdateCheckWorker, UpdateDownloadWorker, WaveformWorker, AsrWorker, WhisperSetupWorker, DiagnoseWorker
@@ -528,6 +529,71 @@ class MainWindow(QMainWindow):
                 self._grade_labels[prm.key] = lab
             gv.addWidget(box)
 
+        # Farbräder (Schatten / Mitten / Lichter)
+        wbox = QGroupBox("Farbräder (ziehen = Farbstich, Doppelklick = zurücksetzen)")
+        wrow = QHBoxLayout(wbox)
+        self.wheels: dict[str, ColorWheel] = {}
+        for zone, title in (("lift", "Schatten"), ("mid", "Mitten"), ("gain", "Lichter")):
+            col = QVBoxLayout()
+            lab = QLabel(title)
+            lab.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            wheel = ColorWheel()
+            wheel.changed.connect(lambda r, g, b, z=zone: self._on_wheel(z, r, g, b))
+            col.addWidget(lab)
+            col.addWidget(wheel, 1)
+            wrow.addLayout(col, 1)
+            self.wheels[zone] = wheel
+        gv.addWidget(wbox)
+
+        # Kurven
+        cbox = QGroupBox("Kurven (Klick = Punkt, Rechtsklick = löschen)")
+        cv = QVBoxLayout(cbox)
+        self.cmb_curve = QComboBox()
+        for key, name in (("m", "Helligkeit (alle Farben)"), ("r", "Rot"), ("g", "Grün"), ("b", "Blau")):
+            self.cmb_curve.addItem(name, key)
+        cv.addWidget(self.cmb_curve)
+        self.curve_editor = CurveEditor()
+        cv.addWidget(self.curve_editor)
+        bcr = QPushButton("Diese Kurve zurücksetzen")
+        cv.addWidget(bcr)
+        gv.addWidget(cbox)
+
+        # LUT
+        lbox = QGroupBox("LUT (Look-Tabelle, .cube)")
+        lf = QVBoxLayout(lbox)
+        self.lut_name = QLabel("Keine LUT geladen")
+        self.lut_name.setWordWrap(True)
+        self.lut_name.setStyleSheet(f"color: {MUTED};")
+        lf.addWidget(self.lut_name)
+        lrow = QHBoxLayout()
+        self.btn_lut_load = QPushButton("LUT laden …")
+        self.btn_lut_clear = QPushButton("Entfernen")
+        lrow.addWidget(self.btn_lut_load, 1)
+        lrow.addWidget(self.btn_lut_clear)
+        lf.addLayout(lrow)
+        mrow = QHBoxLayout()
+        mrow.addWidget(QLabel("Stärke"))
+        self.lut_mix = QSlider(Qt.Orientation.Horizontal)
+        self.lut_mix.setRange(1, 100)
+        self.lut_mix.blockSignals(True)
+        self.lut_mix.setValue(100)
+        self.lut_mix.blockSignals(False)
+        self.lut_mix_label = QLabel("100")
+        self.lut_mix_label.setFixedWidth(36)
+        self.lut_mix_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        mrow.addWidget(self.lut_mix, 1)
+        mrow.addWidget(self.lut_mix_label)
+        lf.addLayout(mrow)
+        gv.addWidget(lbox)
+
+        # Signale erst verbinden, wenn alle Felder existieren
+        self.cmb_curve.currentIndexChanged.connect(self._on_curve_channel)
+        self.curve_editor.changed.connect(self._on_curves_changed)
+        bcr.clicked.connect(self.reset_curve)
+        self.btn_lut_load.clicked.connect(self.load_lut_dialog)
+        self.btn_lut_clear.clicked.connect(self.clear_lut)
+        self.lut_mix.valueChanged.connect(self._on_lut_mix)
+
         self.grade_auto = QCheckBox("Automatisch Helligkeit und Kontrast ausgleichen")
         self.grade_auto.toggled.connect(lambda on: self._on_grade_slider("auto", 1 if on else 0))
         gv.addWidget(self.grade_auto)
@@ -557,6 +623,10 @@ class MainWindow(QMainWindow):
             sl.setValue(int(g.get(key, 0)))
             self._grade_labels[key].setText(f"{sl.value():+d}" if sl.minimum() < 0 else str(sl.value()))
         self.grade_auto.setChecked(bool(g.get("auto", 0)))
+        for zone, wheel in self.wheels.items():
+            wheel.set_rgb(int(g.get(f"{zone}_r", 0)), int(g.get(f"{zone}_g", 0)), int(g.get(f"{zone}_b", 0)))
+        self.curve_editor.set_curves(g.get("curves"))
+        self._show_lut(g)
         self._loading = False
         if c:
             self._grade_timer.start()
@@ -576,6 +646,97 @@ class MainWindow(QMainWindow):
             c.grade[key] = float(val)
         self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
         self._grade_timer.start()
+
+    def _grade_changed(self) -> None:
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
+        self._grade_timer.start()
+
+    def _on_wheel(self, zone: str, r: int, g: int, b: int) -> None:
+        c = self._selected_clip()
+        if self._loading or c is None:
+            return
+        for ch, val in zip("rgb", (r, g, b)):
+            if val:
+                c.grade[f"{zone}_{ch}"] = float(val)
+            else:
+                c.grade.pop(f"{zone}_{ch}", None)
+        self._grade_changed()
+
+    def _on_curve_channel(self, _idx: int = 0) -> None:
+        self.curve_editor.set_channel(self.cmb_curve.currentData() or "m")
+
+    def _on_curves_changed(self) -> None:
+        c = self._selected_clip()
+        if self._loading or c is None:
+            return
+        curves = self.curve_editor.curves()
+        if curves:
+            c.grade["curves"] = curves
+        else:
+            c.grade.pop("curves", None)
+        self._grade_changed()
+
+    def reset_curve(self) -> None:
+        self.curve_editor.reset_channel()          # löst changed aus → Clip wird aktualisiert
+
+    def _show_lut(self, g: dict) -> None:
+        lut = g.get("lut") or ""
+        if lut:
+            gone = "" if os.path.exists(lut) else "  – DATEI FEHLT"
+            self.lut_name.setText(Path(lut).name + gone)
+        else:
+            self.lut_name.setText("Keine LUT geladen")
+        self.btn_lut_clear.setEnabled(bool(lut))
+        self.lut_mix.setEnabled(bool(lut))
+        mix = int(g.get("lut_mix", 100)) if lut else 100
+        self.lut_mix.blockSignals(True)
+        self.lut_mix.setValue(mix)
+        self.lut_mix.blockSignals(False)
+        self.lut_mix_label.setText(str(mix))
+
+    def load_lut_dialog(self) -> None:
+        f, _ = QFileDialog.getOpenFileName(self, "LUT laden", "", "LUT-Dateien (*.cube *.3dl *.dat *.m3d);;Alle Dateien (*)")
+        if f:
+            self.set_lut(f)
+
+    def set_lut(self, path: str) -> bool:
+        c = self._selected_clip()
+        if c is None:
+            return False
+        try:
+            dest = gradelib.import_lut(path)
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "LUT", f"Diese LUT kann nicht verwendet werden:\n{exc}")
+            return False
+        c.grade["lut"] = dest
+        self._loading = True
+        self._show_lut(c.grade)
+        self._loading = False
+        self._grade_changed()
+        self.statusBar().showMessage(f"LUT „{Path(dest).name}“ auf den Clip angewendet – mit „Stärke“ abschwächen.")
+        return True
+
+    def clear_lut(self) -> None:
+        c = self._selected_clip()
+        if c is None:
+            return
+        c.grade.pop("lut", None)
+        c.grade.pop("lut_mix", None)
+        self._loading = True
+        self._show_lut(c.grade)
+        self._loading = False
+        self._grade_changed()
+
+    def _on_lut_mix(self, val: int) -> None:
+        self.lut_mix_label.setText(str(val))
+        c = self._selected_clip()
+        if self._loading or c is None or not c.grade.get("lut"):
+            return
+        if val >= 100:
+            c.grade.pop("lut_mix", None)
+        else:
+            c.grade["lut_mix"] = float(val)
+        self._grade_changed()
 
     def _on_grade_preset(self, _idx: int) -> None:
         c = self._selected_clip()
@@ -599,7 +760,7 @@ class MainWindow(QMainWindow):
         if c is None:
             return
         for other in self.project.clips:
-            other.grade = dict(c.grade)
+            other.grade = copy.deepcopy(c.grade)
         self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
         self.statusBar().showMessage(f"Bildkorrektur auf alle {len(self.project.clips)} Clips angewendet.")
 
@@ -614,7 +775,7 @@ class MainWindow(QMainWindow):
         if self._cur_path == c.path:
             t = self.player.position() / 1000.0
         t = min(max(t, c.in_pt), max(c.in_pt, c.out_pt - 0.05))
-        w = GradePreviewWorker(c.path, t, dict(c.grade), self)
+        w = GradePreviewWorker(c.path, t, copy.deepcopy(c.grade), self)
         w.done.connect(self._on_grade_preview_done)
         self._grade_worker = w
         w.start()
@@ -908,6 +1069,36 @@ class MainWindow(QMainWindow):
         self.ov_border = QCheckBox("Weißer Rahmen")
         self.ov_border.toggled.connect(self._on_overlay_field)
         form.addRow(self.ov_border)
+
+        # Chroma-Key (Greenscreen): Hintergrundfarbe transparent machen
+        self.ov_key_on = QCheckBox("Chroma-Key: Hintergrundfarbe entfernen (Greenscreen)")
+        form.addRow(self.ov_key_on)
+        krow = QHBoxLayout()
+        self.ov_key_swatch = QLabel("")
+        self.ov_key_swatch.setFixedSize(28, 18)
+        self.ov_key_green = QPushButton("Grün")
+        self.ov_key_blue = QPushButton("Blau")
+        self.ov_key_pick = QPushButton("Andere Farbe …")
+        krow.addWidget(self.ov_key_swatch)
+        krow.addWidget(self.ov_key_green)
+        krow.addWidget(self.ov_key_blue)
+        krow.addWidget(self.ov_key_pick, 1)
+        form.addRow("Schlüsselfarbe", krow)
+        self.ov_key_sim = dspin(0.0, 100.0, 5.0, suffix=" %")
+        self.ov_key_blend = dspin(0.0, 100.0, 5.0, suffix=" %")
+        self.ov_key_spill = QCheckBox("Farbsaum entfernen (Grün/Blau an den Rändern)")
+        form.addRow("Toleranz", self.ov_key_sim)
+        form.addRow("Weiche Kante", self.ov_key_blend)
+        form.addRow(self.ov_key_spill)
+        self.ov_key_full = QPushButton("Als Vollbild darüberlegen (Mitte, 100 %)")
+        form.addRow(self.ov_key_full)
+        # Signale erst verbinden, wenn alle Felder existieren
+        self.ov_key_on.toggled.connect(self._on_key_toggle)
+        self.ov_key_green.clicked.connect(lambda *_: self._set_key_color("#00ff00"))
+        self.ov_key_blue.clicked.connect(lambda *_: self._set_key_color("#0000ff"))
+        self.ov_key_pick.clicked.connect(self._pick_key_color)
+        self.ov_key_spill.toggled.connect(self._on_overlay_field)
+        self.ov_key_full.clicked.connect(self._overlay_fullscreen)
         b1 = QPushButton("Bild-in-Bild löschen")
         b1.clicked.connect(self.remove_overlay)
         form.addRow(b1)
@@ -1953,6 +2144,7 @@ class MainWindow(QMainWindow):
         self.ov_fin.setValue(o.fade_in)
         self.ov_fout.setValue(o.fade_out)
         self.ov_border.setChecked(o.border)
+        self._show_key(o)
         key = next((k for k, (cx, cy) in OVERLAY_CORNERS.items() if abs(cx - o.x_pct) < 0.5 and abs(cy - o.y_pct) < 0.5), "")
         self.ov_corner.setCurrentIndex(max(0, self.ov_corner.findData(key)))
         self._loading = False
@@ -1981,6 +2173,62 @@ class MainWindow(QMainWindow):
         o.fade_in = self.ov_fin.value()
         o.fade_out = self.ov_fout.value()
         o.border = self.ov_border.isChecked()
+        o.key_similarity = self.ov_key_sim.value()
+        o.key_blend = self.ov_key_blend.value()
+        o.key_spill = self.ov_key_spill.isChecked()
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
+
+    def _show_key(self, o) -> None:
+        """Zeigt die Chroma-Key-Einstellungen des Overlays (ruft keine Handler auf)."""
+        was = self._loading
+        self._loading = True
+        col = (o.key_color or "").strip()
+        valid = exporter.chromakey_filters(o) != ""
+        self.ov_key_on.setChecked(valid)
+        self.ov_key_swatch.setStyleSheet(
+            f"background: {('#' + col.lstrip('#')) if valid else 'transparent'}; border: 1px solid #2c313d; border-radius: 3px;")
+        self.ov_key_sim.setValue(o.key_similarity)
+        self.ov_key_blend.setValue(o.key_blend)
+        self.ov_key_spill.setChecked(o.key_spill)
+        for w in (self.ov_key_green, self.ov_key_blue, self.ov_key_pick, self.ov_key_sim, self.ov_key_blend,
+                  self.ov_key_spill, self.ov_key_full):
+            w.setEnabled(True)
+        self._loading = was
+
+    def _set_key_color(self, color: str) -> None:
+        o = self._selected_overlay()
+        if self._loading or o is None:
+            return
+        o.key_color = color.lower()
+        self._show_key(o)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
+
+    def _on_key_toggle(self, on: bool) -> None:
+        o = self._selected_overlay()
+        if self._loading or o is None:
+            return
+        if not on:
+            o.key_color = ""
+        elif exporter.chromakey_filters(o) == "":          # noch keine (oder ungültige) Farbe → Grün
+            o.key_color = "#00ff00"
+        self._show_key(o)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
+
+    def _pick_key_color(self) -> None:
+        o = self._selected_overlay()
+        if o is None:
+            return
+        start = QColor(o.key_color) if exporter.chromakey_filters(o) else QColor("#00ff00")
+        col = QColorDialog.getColor(start, self, "Schlüsselfarbe wählen")
+        if col.isValid():
+            self._set_key_color(col.name())
+
+    def _overlay_fullscreen(self) -> None:
+        o = self._selected_overlay()
+        if o is None:
+            return
+        o.x_pct, o.y_pct, o.size_pct = 50.0, 50.0, 100.0
+        self._load_overlay_fields()
         self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
 
     def _select_overlay(self, idx: int) -> None:

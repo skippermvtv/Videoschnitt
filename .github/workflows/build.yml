@@ -67,6 +67,8 @@ jobs:
           T tests/test_effects_ffmpeg.py
           T tests/test_font.py
           T tests/test_grade.py
+          T tests/test_color13.py $env:RUNNER_TEMP
+          T tests/test_color13_logic.py
           T tests/test_audio.py $env:RUNNER_TEMP
           T tests/timeline_logic_check.py
           T tests/test_history.py

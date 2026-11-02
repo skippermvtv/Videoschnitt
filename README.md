@@ -1,7 +1,7 @@
 # FATE VIDEOSCHNITT – Videoschnitt für Windows
 
 Eigenes Videoschnittprogramm mit **Presets für YouTube, Shorts, TikTok, Reels und Instagram**, 31 Effekten (u. a. Glitch, VHS, Neon, Comic),
-**Bildkorrektur**, **Tonspuren** (Ton trennen, Musik, Ducking), **28 Übergängen**, **Untertiteln** (auch automatisch aus Sprache),
+**Bildkorrektur** (mit Farbrädern, Kurven und LUT), **Greenscreen**, **Tonspuren** (Ton trennen, Musik, Ducking), **28 Übergängen**, **Untertiteln** (auch automatisch aus Sprache),
 **Bild-in-Bild**, **Keyframe-Bewegung**, Text mit Animationen, eigener Schrift und eingebautem **Update-Check**.
 Gerendert wird mit FFmpeg (wird in die Setup.exe eingebaut – Nutzer brauchen weder Python noch FFmpeg).
 
@@ -47,7 +47,7 @@ main.py                    Programmstart
 app/core/effects.py        Effekt-Bibliothek (FFmpeg-Filter) – neue Effekte hier ergänzen
 app/core/exporter.py       baut den FFmpeg-Aufruf (Clips, Format, Effekte, Text, Fades)
 app/core/presets.py        lädt Presets (mitgeliefert + eigene)
-app/core/grade.py          Bildkorrektur (Regler → FFmpeg-Filter, Vorher/Nachher-Bild)
+app/core/grade.py          Bildkorrektur (Regler, Farbräder, Kurven, LUT → FFmpeg-Filter, Vorher/Nachher-Bild)
 app/core/audiomix.py       Tonspuren mischen (Spuren, Loop, Fades, Ducking, Lautheit)
 app/core/waveform.py       Wellenform-Bilder für die Timeline
 app/core/updater.py        Update-Check über GitHub Releases
@@ -78,6 +78,16 @@ Alle Effekte liegen als Blöcke auf der Spur **FX Effekte** ganz oben in der Tim
 - **Einstellen:** Block anklicken – im Reiter *Effekte* änderst du Stärke, Anfang und Ende. **Löschen:** Entf.
 - Überlappende Blöcke liegen untereinander (bis zu 3 Zeilen). Derselbe Effekt kann beliebig oft vorkommen. Ein Look (Reiter *Effekte*) ersetzt alle Blöcke.
 - Alte Projekte laden unverändert: Effekte ohne Zeitfenster erscheinen als Block über die ganze Länge.
+
+## Farbe und Greenscreen (ab 1.3)
+
+Reiter **Bild** (pro Clip):
+- **Farbräder** für Schatten, Mitten und Lichter: im Rad ziehen = Farbstich in diese Richtung, Doppelklick = zurücksetzen.
+- **Kurven** für Helligkeit, Rot, Grün und Blau: Klick setzt einen Punkt, ziehen verschiebt, Rechtsklick (oder Doppelklick auf den Punkt) löscht. Bis zu 12 Punkte je Kurve.
+- **LUT** (`.cube`, 3D und 1D; auch `.3dl`): „LUT laden …“ kopiert die Datei in den Datenordner (`%APPDATA%\FATE VIDEOSCHNITT\luts`), „Stärke“ mischt sie ab. Fehlt sie später, meldet das Programm sie bei „Fehlende Dateien suchen …“.
+- Neue Voreinstellungen: Teal & Orange, S-Kurve, Verblasster Film, Cyber.
+
+Reiter **Bild-in-Bild**: **Chroma-Key** macht eine Hintergrundfarbe (Grün, Blau oder frei gewählt) durchsichtig. *Toleranz* bestimmt, wie ähnliche Farben mit entfernt werden, *Weiche Kante* glättet den Rand, *Farbsaum entfernen* nimmt grüne/blaue Ränder weg. „Als Vollbild darüberlegen“ setzt Mitte und 100 % Breite; das Hauptvideo darunter ist der neue Hintergrund.
 
 ## Vorschau und Geschwindigkeit (ab 0.9)
 
@@ -149,4 +159,5 @@ Clip anklicken → Registerkarte **Clip** → „Übergang zum nächsten Clip“
 ## Bekannte Grenzen
 
 - Nur eine Bild-in-Bild-Spur (V2); Overlay-Ton wird nicht gemischt.
+- Chroma-Key gibt es nur für Bild-in-Bild (V2), nicht für die Hauptspur. Die Schlüsselfarbe wählst du aus Grün, Blau oder dem Farbdialog (keine Pipette im Bild).
 - Die Vorschau mit Effekten wird vorab berechnet (kein Echtzeit-Playback mit Effekten).

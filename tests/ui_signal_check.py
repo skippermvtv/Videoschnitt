@@ -340,6 +340,52 @@ no_errors("Bildkorrektur-Regler")
 win.reset_grade()
 win.apply_grade_to_all()
 no_errors("Bildkorrektur zurücksetzen/auf alle")
+# 1.3: Farbräder, Kurven, LUT (die Widget-Signale sind hier Attrappen → Handler direkt aufrufen)
+win._select_clip(0)
+c0 = win.project.clips[0]
+for zone in ("lift", "mid", "gain"):
+    win._on_wheel(zone, 40, -20, -20)
+    assert c0.grade.get(f"{zone}_r") == 40.0, c0.grade
+win._on_wheel("mid", 0, 0, 0)
+assert "mid_r" not in c0.grade
+win.curve_editor.set_curves({"m": [[0, 0], [0.5, 0.7], [1, 1]]})
+win._on_curves_changed()
+assert c0.grade["curves"]["m"][1] == [0.5, 0.7], c0.grade
+win.curve_editor.set_curves({})
+win._on_curves_changed()
+assert "curves" not in c0.grade
+win._on_curve_channel(0)
+win.reset_curve()
+cube = tmp / "t.cube"
+with open(cube, "w", encoding="utf-8") as fh:
+    fh.write("LUT_3D_SIZE 2\n" + "\n".join(f"{r} {g} {b}" for b in (0, 1) for g in (0, 1) for r in (0, 1)) + "\n")
+import os as _os  # noqa: E402
+_os.environ["APPDATA"] = str(tmp / "appdata")
+assert win.set_lut(str(cube)) and c0.grade["lut"].endswith(".cube") and _os.path.exists(c0.grade["lut"])
+win._on_lut_mix(40)
+assert c0.grade["lut_mix"] == 40.0
+win._on_lut_mix(100)
+assert "lut_mix" not in c0.grade
+win._load_grade_fields()
+win.clear_lut()
+assert "lut" not in c0.grade
+win.reset_grade()
+no_errors("Farbräder, Kurven, LUT")
+print("   Overlays vorhanden:", len(win.project.overlays))
+if win.project.overlays:
+    win._select_overlay(0)
+    win._on_key_toggle(True)
+    assert win.project.overlays[0].key_color == "#00ff00", win.project.overlays[0].key_color
+    win._set_key_color("#0000FF")
+    assert win.project.overlays[0].key_color == "#0000ff"
+    win._on_overlay_field()
+    win._overlay_fullscreen()
+    assert win.project.overlays[0].size_pct == 100.0
+    win._on_key_toggle(False)
+    assert win.project.overlays[0].key_color == ""
+    win._load_overlay_fields()
+    no_errors("Chroma-Key")
+print("OK  1.3: Farbräder, Kurven, LUT, Chroma-Key")
 win.cmb_look.setCurrentIndex(min(1, max(0, win.cmb_look.count() - 1)))
 no_errors("Look wählen")
 win.apply_transition_to_all()

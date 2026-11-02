@@ -77,6 +77,26 @@ def format_eta(elapsed: float, progress: float) -> str:
 MAX_REVERSE_SECONDS = 90.0
 
 
+def chromakey_filters(o) -> str:
+    """Chroma-Key für ein Bild-in-Bild: leer, wenn aus oder die Farbe ungültig ist (siehe OverlayClip.key_*)."""
+    import re
+    col = (getattr(o, "key_color", "") or "").strip()
+    m = re.fullmatch(r"#?([0-9a-fA-F]{6})", col)
+    if not m:
+        return ""
+    hexv = m.group(1).lower()
+    sim = 0.02 + 0.48 * min(100.0, max(0.0, float(o.key_similarity))) / 100.0
+    blend = 0.5 * min(100.0, max(0.0, float(o.key_blend))) / 100.0
+    out = f"chromakey=color=0x{hexv}:similarity={sim:.3f}:blend={blend:.3f}"
+    if o.key_spill:
+        r, g, b = (int(hexv[i:i + 2], 16) for i in (0, 2, 4))
+        if g >= r and g >= b:
+            out += ",despill=type=green"
+        elif b >= r and b >= g:
+            out += ",despill=type=blue"
+    return out
+
+
 def _esc_path(p: str) -> str:
     """Pfad für FFmpeg-Filteroptionen (Windows: C:\\x → C\\:/x)."""
     return p.replace("\\", "/").replace(":", "\\:").replace("'", r"\'")
@@ -381,6 +401,9 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
             cmd += ["-ss", f"{o.in_pt:.3f}", "-t", f"{oseg:.3f}", "-i", o.path]
         ow = max(16, int(W * max(1.0, min(o.size_pct, 100.0)) / 100.0) // 2 * 2)
         ch = f"[{k}:v]setpts=(PTS-STARTPTS)/{osp:.4f},fps={fps},scale={ow}:-2,format=rgba"
+        key = chromakey_filters(o)
+        if key:
+            ch += "," + key + ",format=rgba"
         if o.border:
             b = max(2, ow // 80)
             ch += f",pad=iw+{2 * b}:ih+{2 * b}:{b}:{b}:white"

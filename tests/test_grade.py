@@ -51,7 +51,7 @@ def main() -> int:
     presets = json.loads((ROOT / "presets" / "grades.json").read_text(encoding="utf-8"))
     assert len(presets) >= 8
     for pr in presets:
-        assert set(pr["values"]) <= grade.KEYS, pr["id"]
+        assert set(pr["values"]) <= grade.KEYS | grade.EXTRA_KEYS, pr["id"]
         ok, err = run_chain(ff, grade.filter_chain(pr["values"]), src)
         print(("OK  " if ok else "FEHLER ") + "Voreinstellung " + pr["id"])
         if not ok:

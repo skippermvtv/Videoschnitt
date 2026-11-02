@@ -202,6 +202,10 @@ class OverlayClip:
     fade_out: float = 0.0
     border: bool = False
     name: str = ""
+    key_color: str = ""        # Chroma-Key (Greenscreen): "" = aus, sonst "#RRGGBB"
+    key_similarity: float = 30.0   # Toleranz 0 … 100
+    key_blend: float = 20.0        # weiche Kante 0 … 100
+    key_spill: bool = True         # Farbsaum der Schlüsselfarbe entfernen
 
     def __post_init__(self):
         if not self.out_pt:
@@ -427,7 +431,9 @@ class Project:
     def missing_paths(self) -> list[str]:
         import os
         seen: list[str] = []
-        for p in [c.path for c in self.clips] + [a.path for a in self.audio_clips] + [o.path for o in self.overlays]:
+        luts = [c.grade["lut"] for c in self.clips if isinstance(c.grade.get("lut"), str) and c.grade.get("lut")]
+        for p in ([c.path for c in self.clips] + [a.path for a in self.audio_clips]
+                  + [o.path for o in self.overlays] + luts):
             if not os.path.exists(p) and p not in seen:
                 seen.append(p)
         return seen
@@ -453,6 +459,8 @@ class Project:
         for c in self.clips:
             if c.path in found:
                 c.path = found[c.path]
+            if c.grade.get("lut") in found:
+                c.grade["lut"] = found[c.grade["lut"]]
         for a in self.audio_clips + self.overlays:
             if a.path in found:
                 a.path = found[a.path]
