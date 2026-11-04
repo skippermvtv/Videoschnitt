@@ -181,7 +181,7 @@ class Timeline(QWidget):
         if proj is None or (not proj.clips and not proj.audio_clips and not proj.overlays):
             p.setPen(QColor(MUTED))
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
-                       "Noch keine Clips – links Dateien importieren und zur Timeline hinzufügen")
+                       "Noch keine Clips – im Reiter „Medien“ importieren (oder Dateien ins Fenster ziehen) und zur Timeline hinzufügen")
             return
         span = self._span()
         avail = self._avail()

@@ -8,7 +8,7 @@ import time
 import uuid
 from pathlib import Path
 
-from PySide6.QtCore import QMimeData, Qt, QTimer, QUrl
+from PySide6.QtCore import QMimeData, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QKeySequence, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
@@ -16,13 +16,13 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QDialog, QDialogButtonBox, QTextBrowser, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem,
     QMainWindow, QMessageBox, QPlainTextEdit, QProgressDialog, QPushButton, QSlider,
-    QFrame, QScrollArea, QSizePolicy, QSplitter, QTabWidget, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-    QWidget,
+    QFrame, QLineEdit, QListView, QScrollArea, QSplitter, QStyle, QToolButton, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
 from .. import paths
 from ..core import effects as fx
-from ..core import diagnostics, exporter, grade as gradelib, preview as prevcache, presets, settings, subtitles as subs, updater
+from ..core import diagnostics, exporter, grade as gradelib, preview as prevcache, presets, settings, subtitles as subs, updater, window as projwin
 from ..core.history import History
 from ..core.fontcheck import missing_chars
 from ..core.helptext import help_html
@@ -30,9 +30,10 @@ from ..core.project import (IMAGE_MAX, OVERLAY_CORNERS, TRACK_NAMES, AudioClip, 
                             TEXT_ANIMS, Project, SubtitleCue, TextLayer, is_image_path, probe, probe_audio)
 from ..version import APP_NAME, VERSION
 from .colorwidgets import ColorWheel, CurveEditor
-from .theme import ACCENT, MUTED
+from .navtabs import NavTabs
+from .theme import BRAND, MUTED
 from .timeline import FX_MIME, Timeline
-from .workers import ExportWorker, GradePreviewWorker, UpdateCheckWorker, UpdateDownloadWorker, WaveformWorker, AsrWorker, WhisperSetupWorker, DiagnoseWorker
+from .workers import ThumbWorker, ExportWorker, GradePreviewWorker, UpdateCheckWorker, UpdateDownloadWorker, WaveformWorker, AsrWorker, WhisperSetupWorker, DiagnoseWorker
 
 VIDEO_FILTER = ("Videos und Bilder (*.mp4 *.mov *.mkv *.avi *.webm *.m4v *.wmv *.flv *.mts *.m2ts "
                 "*.jpg *.jpeg *.png *.webp *.bmp *.tif *.tiff);;Alle Dateien (*)")
@@ -40,11 +41,7 @@ LAYOUTS = [("", "Automatisch (vom Format)"), ("fit", "Einpassen (schwarze Balken
            ("fill", "Füllen (zuschneiden)"), ("blur", "Unscharfer Hintergrund")]
 AUDIO_FILTER = ("Audio und Videos (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus *.wma *.mp4 *.mov *.mkv *.webm);;"
                 "Alle Dateien (*)")
-FX_TAB = 2
-AUDIO_TAB = 5
-OVERLAY_TAB = 6
-SUBTITLE_TAB = 7
-MOTION_TAB = 8
+TAB_MEDIA, TAB_FORMAT, TAB_GRADE, FX_TAB, TAB_TEXT, TAB_CLIP, AUDIO_TAB, OVERLAY_TAB, SUBTITLE_TAB, MOTION_TAB = range(10)
 SRT_FILTER = "Untertitel (*.srt);;Alle Dateien (*)"
 ASR_LANGS = [("auto", "Automatisch erkennen"), ("de", "Deutsch"), ("en", "Englisch"), ("pl", "Polnisch"),
              ("es", "Spanisch"), ("fr", "Französisch"), ("it", "Italienisch"), ("tr", "Türkisch"), ("ru", "Russisch")]
@@ -54,6 +51,18 @@ TEXT_POS = [("top", "Oben"), ("center", "Mitte"), ("bottom", "Unten")]
 def fmt_time(t: float) -> str:
     t = max(0.0, t)
     return f"{int(t // 60)}:{t % 60:04.1f}"
+
+
+class SeekSlider(QSlider):
+    """Suchleiste: ein Klick irgendwo auf der Leiste springt dorthin (nicht nur seitenweise)."""
+
+    def mousePressEvent(self, ev):  # noqa: N802
+        if ev.button() == Qt.MouseButton.LeftButton and self.maximum() > 0:
+            v = QStyle.sliderValueFromPosition(self.minimum(), self.maximum(), int(ev.position().x()),
+                                               max(1, self.width()))
+            self.setValue(v)
+            self.sliderMoved.emit(v)
+        super().mousePressEvent(ev)
 
 
 class FxTree(QTreeWidget):
@@ -102,9 +111,26 @@ class MainWindow(QMainWindow):
         self._grade_timer.setSingleShot(True)
         self._grade_timer.setInterval(250)
         self._grade_timer.timeout.connect(self._update_grade_preview)
+        # Live-Vorschau: nach jeder Änderung rechnet ein Hintergrundauftrag einen kurzen Ausschnitt am Abspielkopf neu
+        _cfg = settings.load()
+        self._live_on = bool(_cfg.get("live_preview", True))
+        self._live_len_cfg = max(2.0, min(30.0, float(_cfg.get("live_len", 6.0))))
+        self._live_worker = None
+        self._live_pending: tuple | None = None
+        self._live_path = ""            # Datei der Live-Vorschau, die gerade im Player liegt
+        self._live_state = ""           # Projektstand, aus dem sie berechnet wurde
+        self._live_start_t = 0.0
+        self._live_len = 0.0
+        self._live_next_ready: tuple | None = None      # (Start, Datei, Projektstand) des vorab gerechneten nächsten Abschnitts
+        self._live_playing = False
+        self._live_timer = QTimer(self)
+        self._live_timer.setSingleShot(True)
+        self._live_timer.timeout.connect(self._live_fire)
+        self._thumb_workers: list = []
 
         self._history = History(self.project.to_json())
         self._saved_state = self.project.to_json()
+        self._live_last_state = self._saved_state
         self._ask_on_close = not os.environ.get("CLIPFORGE_NO_PROMPTS")
         self._hist_timer = QTimer(self)
         self._hist_timer.setInterval(250)
@@ -150,66 +176,46 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
-        root = QHBoxLayout(central)
-        root.setContentsMargins(8, 8, 8, 8)
-        split = QSplitter(Qt.Orientation.Horizontal)
-        root.addWidget(split)
+        root = QVBoxLayout(central)
+        root.setContentsMargins(6, 6, 6, 6)
+        vsplit = QSplitter(Qt.Orientation.Vertical)
+        root.addWidget(vsplit)
+        top = QSplitter(Qt.Orientation.Horizontal)
+        vsplit.addWidget(top)
 
-        # -- links: Medien
-        left = QWidget()
-        lv = QVBoxLayout(left)
-        lv.setContentsMargins(0, 0, 0, 0)
-        brand = QLabel(APP_NAME)
-        brand.setWordWrap(True)            # „FATE VIDEOSCHNITT“ passt in zwei Zeilen
-        f = QFont(getattr(self, "_brand_family", self.font().family()))
-        f.setPointSize(22)
-        brand.setFont(f)
-        brand.setStyleSheet(f"color: {ACCENT};")
-        lv.addWidget(brand)
-        lv.addWidget(QLabel("Medien (Dateien auch hierher ziehen)"))
-        self.media_list = QListWidget()
-        self.media_list.itemDoubleClicked.connect(lambda it: self._add_to_timeline(it.data(Qt.ItemDataRole.UserRole)))
-        self.media_list.currentItemChanged.connect(self._on_media_selected)
-        lv.addWidget(self.media_list, 1)
-        b1 = QPushButton("Dateien importieren …")
-        b1.clicked.connect(self.import_dialog)
-        b2 = QPushButton("Zur Timeline hinzufügen  ▶")
-        b2.clicked.connect(self._add_selected_media)
-        lv.addWidget(b1)
-        lv.addWidget(b2)
-        left.setMinimumWidth(230)
-        split.addWidget(left)
+        # -- oben links: Reiter (Medien, Format, Bild, Effekte …) mit Export-Knopf
+        self.tabs = NavTabs()
+        self.tabs.addTab(self._build_media_tab(), "Medien", "▣")
+        self.tabs.addTab(self._build_format_tab(), "Format", "▭")
+        self.tabs.addTab(self._build_grade_tab(), "Bild", "◐")
+        self.tabs.addTab(self._build_effects_tab(), "Effekte", "✦")
+        self.tabs.addTab(self._build_text_tab(), "Text", "T")
+        self.tabs.addTab(self._build_clip_tab(), "Clip", "✂")
+        self.tabs.addTab(self._build_audio_tab(), "Ton", "♪")
+        self.tabs.addTab(self._build_overlay_tab(), "Bild-in-Bild", "❏")
+        self.tabs.addTab(self._build_subtitle_tab(), "Untertitel", "≣")
+        self.tabs.addTab(self._build_motion_tab(), "Bewegung", "➤")
+        self.btn_export = QPushButton("EXPORT")
+        self.btn_export.setObjectName("primary")
+        self.btn_export.setToolTip("Video exportieren (Strg+E)")
+        self.btn_export.clicked.connect(self.export_video)
+        self.tabs.setCornerWidget(self.btn_export)
+        top.addWidget(self.tabs)
 
-        # -- Mitte: Vorschau + Timeline
-        mid = QWidget()
-        mv = QVBoxLayout(mid)
-        mv.setContentsMargins(0, 0, 0, 0)
-        self.video = QVideoWidget()
-        self.video.setMinimumSize(420, 240)
-        self.video.setStyleSheet("background: black;")
-        mv.addWidget(self.video, 1)
+        # -- oben rechts: Vorschau
+        top.addWidget(self._build_preview_panel())
+        top.setStretchFactor(0, 0)
+        top.setStretchFactor(1, 1)
+        top.setSizes([700, 760])
 
-        self.audio = QAudioOutput()
-        self.player = QMediaPlayer()
-        self.player.setAudioOutput(self.audio)
-        self.player.setVideoOutput(self.video)
-        self.player.positionChanged.connect(self._on_position)
-        self.player.durationChanged.connect(lambda d: self.seek.setRange(0, int(d)))
-        self.player.mediaStatusChanged.connect(self._on_media_status)
-
-        tr = QHBoxLayout()
-        self.btn_play = QPushButton("▶ / ❚❚")
-        self.btn_play.setFixedWidth(80)
-        self.btn_play.clicked.connect(self.toggle_play)
-        self.seek = QSlider(Qt.Orientation.Horizontal)
-        self.seek.sliderMoved.connect(self.player.setPosition)
-        self.time_label = QLabel("0:00.0")
-        self.time_label.setFixedWidth(60)
-        tr.addWidget(self.btn_play)
-        tr.addWidget(self.seek, 1)
-        tr.addWidget(self.time_label)
-        mv.addLayout(tr)
-
+        # -- unten: Timeline mit Werkzeugleiste
+        bottom = QWidget()
+        bv = QVBoxLayout(bottom)
+        bv.setContentsMargins(0, 0, 0, 0)
+        bv.setSpacing(2)
+        self._tl_bar = QHBoxLayout()
+        self._tl_bar.setContentsMargins(4, 2, 4, 0)
+        bv.addLayout(self._tl_bar)
         self.timeline = Timeline()
         self.timeline.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.timeline.clip_selected.connect(self._select_clip)
@@ -223,56 +229,195 @@ class MainWindow(QMainWindow):
         self.timeline.fx_selected.connect(self._select_fx)
         self.timeline.fx_edited.connect(self._on_fx_edited)
         self.timeline.effect_dropped.connect(self._on_fx_dropped)
-        mv.addWidget(self.timeline)
-
-        cb = QHBoxLayout()
-        for text, slot in (("✂ Am Abspielkopf teilen", self.split_clip), ("◀ Nach links", lambda: self.move_clip(-1)),
-                           ("Nach rechts ▶", lambda: self.move_clip(1)), ("Clip löschen", self.delete_clip)):
-            b = QPushButton(text)
-            b.clicked.connect(slot)
-            cb.addWidget(b)
-        cb.addStretch(1)
-        self.dur_label = QLabel("Gesamtlänge: 0:00.0")
-        self.dur_label.setStyleSheet(f"color: {MUTED};")
-        cb.addWidget(self.dur_label)
-        mv.addLayout(cb)
-        ab = QHBoxLayout()
-        for text, slot in (("♪ Ton vom Clip trennen", self.detach_selected_audio),
-                           ("♫ Musik / Audio hinzufügen …", self.add_audio_dialog),
-                           ("▣ Bild-in-Bild hinzufügen …", self.add_overlay_dialog),
-                           ("Audioblock löschen", self.remove_audio)):
-            b = QPushButton(text)
-            b.clicked.connect(slot)
-            ab.addWidget(b)
-        ab.addStretch(1)
-        for text, slot in (("＋", lambda: self.timeline.zoom_by(1.5)), ("−", lambda: self.timeline.zoom_by(1 / 1.5)),
-                           ("Alles zeigen", self.timeline.zoom_fit)):
-            b = QPushButton(text)
-            b.setToolTip("Timeline zoomen (auch Strg + Mausrad)")
-            b.clicked.connect(slot)
-            ab.addWidget(b)
-        mv.addLayout(ab)
-        split.addWidget(mid)
-
-        # -- rechts: Tabs
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_format_tab(), "Format")
-        self.tabs.addTab(self._build_grade_tab(), "Bild")
-        self.tabs.addTab(self._build_effects_tab(), "Effekte")
-        self.tabs.addTab(self._build_text_tab(), "Text")
-        self.tabs.addTab(self._build_clip_tab(), "Clip")
-        self.tabs.addTab(self._build_audio_tab(), "Ton")
-        self.tabs.addTab(self._build_overlay_tab(), "Bild-in-Bild")
-        self.tabs.addTab(self._build_subtitle_tab(), "Untertitel")
-        self.tabs.addTab(self._build_motion_tab(), "Bewegung")
-        self.tabs.setMinimumWidth(400)
-        split.addWidget(self.tabs)
-        split.setStretchFactor(0, 0)
-        split.setStretchFactor(1, 1)
-        split.setStretchFactor(2, 0)
-        split.setSizes([240, 860, 380])
+        bv.addWidget(self.timeline, 1)
+        vsplit.addWidget(bottom)
+        vsplit.setStretchFactor(0, 3)
+        vsplit.setStretchFactor(1, 2)
+        vsplit.setSizes([520, 340])
 
         self.statusBar().showMessage("Bereit. Ziehe Videodateien ins Fenster, um zu starten.")
+
+    def _build_media_tab(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(8, 8, 8, 8)
+        row = QHBoxLayout()
+        b1 = QPushButton("＋ Importieren …")
+        b1.clicked.connect(self.import_dialog)
+        row.addWidget(b1)
+        self.media_search = QLineEdit()
+        self.media_search.setPlaceholderText("Suchen …")
+        self.media_search.setClearButtonEnabled(True)
+        self.media_search.textChanged.connect(self._filter_media)
+        row.addWidget(self.media_search, 1)
+        v.addLayout(row)
+        self.media_hint = QLabel("Noch keine Medien.\nZiehe Videos, Bilder oder Audiodateien ins Fenster\noder klicke auf „Importieren“.")
+        self.media_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.media_hint.setStyleSheet(f"color: {MUTED};")
+        v.addWidget(self.media_hint)
+        self.media_list = QListWidget()
+        self.media_list.setObjectName("medialist")
+        self.media_list.setViewMode(QListView.ViewMode.IconMode)
+        self.media_list.setIconSize(QSize(160, 90))
+        self.media_list.setGridSize(QSize(176, 134))
+        self.media_list.setResizeMode(QListView.ResizeMode.Adjust)
+        self.media_list.setMovement(QListView.Movement.Static)
+        self.media_list.setWordWrap(True)
+        self.media_list.setUniformItemSizes(True)
+        self.media_list.itemDoubleClicked.connect(lambda it: self._add_to_timeline(it.data(Qt.ItemDataRole.UserRole)))
+        self.media_list.currentItemChanged.connect(self._on_media_selected)
+        v.addWidget(self.media_list, 1)
+        b2 = QPushButton("Zur Timeline hinzufügen  ▶")
+        b2.setToolTip("Auch per Doppelklick auf das Vorschaubild")
+        b2.clicked.connect(self._add_selected_media)
+        v.addWidget(b2)
+        return w
+
+    def _build_preview_panel(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(4, 0, 0, 0)
+        v.setSpacing(4)
+        self.video = QVideoWidget()
+        self.video.setMinimumSize(360, 200)
+        self.video.setStyleSheet("background: black;")
+        v.addWidget(self.video, 1)
+
+        self.audio = QAudioOutput()
+        self.player = QMediaPlayer()
+        self.player.setAudioOutput(self.audio)
+        self.player.setVideoOutput(self.video)
+        self.player.positionChanged.connect(self._on_position)
+        self.player.mediaStatusChanged.connect(self._on_media_status)
+        self.player.playbackStateChanged.connect(self._on_play_state)
+
+        # Suchleiste über die ganze Projektlänge (nicht über die Länge der gerade geladenen Datei)
+        self.seek = SeekSlider(Qt.Orientation.Horizontal)
+        self.seek.setRange(0, 0)
+        self.seek.sliderMoved.connect(self._on_seek_moved)
+        v.addWidget(self.seek)
+
+        tr = QHBoxLayout()
+        self.time_label = QLabel("0:00.0")
+        self.time_label.setObjectName("timecode")
+        self.time_label.setMinimumWidth(70)
+        self.dur_label = QLabel("/ 0:00.0")
+        self.dur_label.setStyleSheet(f"color: {MUTED};")
+        tr.addWidget(self.time_label)
+        tr.addWidget(self.dur_label)
+        tr.addStretch(1)
+        b_start = QToolButton()
+        b_start.setText("⏮")
+        b_start.setToolTip("Zum Anfang")
+        b_start.clicked.connect(lambda: self._seek_project(0.0))
+        self.btn_play = QToolButton()
+        self.btn_play.setText("▶")
+        self.btn_play.setToolTip("Abspielen / Pause (Leertaste)")
+        self.btn_play.clicked.connect(self.toggle_play)
+        b_end = QToolButton()
+        b_end.setText("⏭")
+        b_end.setToolTip("Zum Ende")
+        b_end.clicked.connect(lambda: self._seek_project(max(0.0, self.project.duration - 0.05)))
+        for b in (b_start, self.btn_play, b_end):
+            tr.addWidget(b)
+        tr.addStretch(1)
+        self.live_label = QLabel("")
+        self.live_label.setStyleSheet(f"color: {MUTED};")
+        tr.addWidget(self.live_label)
+        self.btn_live = QPushButton("● Live")
+        self.btn_live.setObjectName("livebadge")
+        self.btn_live.setCheckable(True)
+        self.btn_live.setChecked(self._live_on)
+        self.btn_live.setToolTip("Live-Vorschau: Änderungen (Effekte, Bild, Ton, Text …) sind nach kurzer Zeit direkt im Player zu sehen")
+        self.btn_live.toggled.connect(self.set_live)
+        tr.addWidget(self.btn_live)
+        v.addLayout(tr)
+        return w
+
+    def _build_timeline_toolbar(self) -> None:
+        """Werkzeugleiste über der Timeline (nach _build_actions, weil sie dessen Aktionen nutzt)."""
+        lay = self._tl_bar
+
+        def tool(text, tip, slot=None, action=None):
+            b = QToolButton()
+            b.setText(text)
+            b.setToolTip(tip)
+            if action is not None:
+                b.setDefaultAction(action)
+                b.setText(text)
+                b.setToolTip(tip)
+            elif slot is not None:
+                b.clicked.connect(slot)
+            lay.addWidget(b)
+            return b
+
+        def sep():
+            f = QFrame()
+            f.setFrameShape(QFrame.Shape.VLine)
+            f.setStyleSheet("color: #343842;")
+            lay.addWidget(f)
+
+        tool("↶", "Rückgängig (Strg+Z)", action=self.act_undo)
+        tool("↷", "Wiederholen (Strg+Y)", action=self.act_redo)
+        sep()
+        tool("🗑", "Auswahl löschen (Entf)", self.delete_selected)
+        tool("✂", "Am Abspielkopf teilen", self.split_clip)
+        tool("◀", "Clip nach links", lambda: self.move_clip(-1))
+        tool("▶", "Clip nach rechts", lambda: self.move_clip(1))
+        sep()
+        tool("♪ trennen", "Ton vom Clip trennen", self.detach_selected_audio)
+        tool("♫ +", "Musik / Audio hinzufügen …", self.add_audio_dialog)
+        tool("❏ +", "Bild-in-Bild hinzufügen …", self.add_overlay_dialog)
+        lay.addStretch(1)
+        self.tl_dur = QLabel("")
+        self.tl_dur.setStyleSheet(f"color: {MUTED};")
+        lay.addWidget(self.tl_dur)
+        tool("−", "Timeline verkleinern (auch Strg + Mausrad)", lambda: self.timeline.zoom_by(1 / 1.5))
+        self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
+        self.zoom_slider.setRange(0, 100)
+        self.zoom_slider.setFixedWidth(120)
+        self.zoom_slider.setToolTip("Timeline zoomen")
+        self.zoom_slider.valueChanged.connect(self._on_zoom_slider)
+        lay.addWidget(self.zoom_slider)
+        tool("＋", "Timeline vergrößern", lambda: self.timeline.zoom_by(1.5))
+        tool("Alles", "Ganzes Projekt zeigen", self.timeline.zoom_fit)
+
+    def _on_zoom_slider(self, v: int) -> None:
+        from .timeline import MAX_ZOOM
+        target = MAX_ZOOM ** (v / 100.0)
+        cur = max(self.timeline.zoom, 1e-6)
+        if abs(target / cur - 1.0) > 0.02:
+            self.timeline.zoom_by(target / cur)
+
+    def _sync_zoom_slider(self) -> None:
+        import math
+        from .timeline import MAX_ZOOM
+        z = max(1.0, float(self.timeline.zoom))
+        v = int(round(100.0 * math.log(z) / math.log(MAX_ZOOM))) if MAX_ZOOM > 1 else 0
+        if v != self.zoom_slider.value():
+            was = self.zoom_slider.blockSignals(True)
+            self.zoom_slider.setValue(v)
+            self.zoom_slider.blockSignals(was)
+
+    # -- Zeit / Länge
+    def _update_duration(self) -> None:
+        d = self.project.duration
+        self.dur_label.setText(f"/ {fmt_time(d)}")
+        self.tl_dur.setText(f"Gesamtlänge {fmt_time(d)}")
+        self.seek.setRange(0, int(d * 1000))
+
+    def _show_time(self, t: float) -> None:
+        self.timeline.set_playhead(t)
+        if not self.seek.isSliderDown():
+            self.seek.setValue(int(t * 1000))
+        self.time_label.setText(fmt_time(t))
+
+    def _on_play_state(self, state) -> None:
+        playing = state == QMediaPlayer.PlaybackState.PlayingState
+        self.btn_play.setText("❚❚" if playing else "▶")
+
+    def _on_seek_moved(self, v: int) -> None:
+        self._seek_project(v / 1000.0)
 
     def _build_format_tab(self) -> QWidget:
         w = QWidget()
@@ -389,6 +534,37 @@ class MainWindow(QMainWindow):
         self.fx_end.valueChanged.connect(self._on_fx_param)
         self.fx_box.setEnabled(False)
         v.addWidget(self.fx_box)
+
+        # Bereich (nur bei Masken-Effekten): Form, Mitte, Größe, weiche Kante
+        self.fx_mask_box = QGroupBox("Bereich (Maske)")
+        ml = QFormLayout(self.fx_mask_box)
+        self.mask_shape = QComboBox()
+        self.mask_shape.addItem("Ellipse", "ellipse")
+        self.mask_shape.addItem("Rechteck", "rect")
+        ml.addRow("Form", self.mask_shape)
+        self.mask_x, self.mask_y, self.mask_w, self.mask_h = (QDoubleSpinBox() for _ in range(4))
+        for sp, lo, hi, label in ((self.mask_x, 0, 100, "Mitte links–rechts"), (self.mask_y, 0, 100, "Mitte oben–unten"),
+                                  (self.mask_w, 1, 200, "Breite"), (self.mask_h, 1, 200, "Höhe")):
+            sp.setRange(lo, hi)
+            sp.setSingleStep(1.0)
+            sp.setSuffix(" %")
+            ml.addRow(label, sp)
+        self.mask_feather = QSlider(Qt.Orientation.Horizontal)
+        self.mask_feather.setRange(0, 100)
+        ml.addRow("Weiche Kante", self.mask_feather)
+        self.mask_invert = QCheckBox("Außen statt innen wirken")
+        ml.addRow(self.mask_invert)
+        self.mask_info = QLabel("")
+        self.mask_info.setWordWrap(True)
+        self.mask_info.setStyleSheet(f"color: {MUTED};")
+        ml.addRow(self.mask_info)
+        for wdg in (self.mask_x, self.mask_y, self.mask_w, self.mask_h):
+            wdg.valueChanged.connect(self._on_mask_param)
+        self.mask_shape.currentIndexChanged.connect(self._on_mask_param)
+        self.mask_feather.valueChanged.connect(self._on_mask_param)
+        self.mask_invert.toggled.connect(self._on_mask_param)
+        self.fx_mask_box.setVisible(False)
+        v.addWidget(self.fx_mask_box)
         hint = QLabel("Effekt aus der Liste auf die Spur „FX Effekte“ in der Timeline ziehen (oder doppelklicken). "
                       "Block verschieben = anderer Zeitpunkt, Rand ziehen = Länge ändern. Beliebig viele Blöcke, auch vom selben Effekt.")
         hint.setWordWrap(True)
@@ -1308,10 +1484,6 @@ class MainWindow(QMainWindow):
         return outer
 
     def _build_actions(self) -> None:
-        tb = QToolBar("Hauptleiste")
-        tb.setMovable(False)
-        self.addToolBar(tb)
-
         def act(text, slot, shortcut=None):
             a = QAction(text, self)
             a.triggered.connect(slot)
@@ -1321,22 +1493,29 @@ class MainWindow(QMainWindow):
 
         self.act_open = act("Projekt öffnen", self.open_project, "Ctrl+O")
         self.act_save = act("Projekt speichern", self.save_project, "Ctrl+S")
-        self.act_preview = act("▶ Vorschau ab Abspielkopf", self.render_preview, "Ctrl+P")
+        self.act_preview = act("▶ Vorschau ab Abspielkopf (volle Qualität)", self.render_preview, "Ctrl+P")
         self.act_export = act("Exportieren …", self.export_video, "Ctrl+E")
         self.act_undo = act("↶ Rückgängig", self.undo, "Ctrl+Z")
         self.act_redo = act("↷ Wiederholen", self.redo)
         self.act_redo.setShortcuts([QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")])
-        for a in (self.act_open, self.act_save, self.act_undo, self.act_redo):
-            tb.addAction(a)
-        tb.addSeparator()
-        tb.addAction(self.act_preview)
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        tb.addWidget(spacer)
-        btn = QPushButton("Exportieren …")
-        btn.setObjectName("primary")
-        btn.clicked.connect(self.export_video)
-        tb.addWidget(btn)
+
+        mf = self.menuBar().addMenu("Datei")
+        mf.addAction(self.act_open)
+        mf.addAction(self.act_save)
+        mf.addSeparator()
+        mf.addAction(act("Medien importieren …", self.import_dialog, "Ctrl+I"))
+        mf.addSeparator()
+        mf.addAction(self.act_preview)
+        mf.addAction(self.act_export)
+
+        # Name oben rechts in der Menüleiste (rot, wie das Logo)
+        brand = QLabel(APP_NAME)
+        f = QFont(getattr(self, "_brand_family", self.font().family()))
+        f.setPointSize(13)
+        brand.setFont(f)
+        brand.setStyleSheet(f"color: {BRAND}; padding: 0 10px;")
+        self.menuBar().setCornerWidget(brand, Qt.Corner.TopRightCorner)
+        self._build_timeline_toolbar()
 
         me = self.menuBar().addMenu("Bearbeiten")
         me.addAction(self.act_undo)
@@ -1525,6 +1704,19 @@ class MainWindow(QMainWindow):
         self.fx_int_label.setText(str(int(e.get("intensity", 50))))
         self.fx_start.setValue(s0)
         self.fx_end.setValue(0.0 if whole_end else t0)
+        is_mask = bool(eff and eff.params)
+        self.fx_mask_box.setVisible(is_mask)
+        if is_mask:
+            m = fx.mask_params(e.get("mask"))
+            self.mask_shape.setCurrentIndex(max(0, self.mask_shape.findData(m["shape"])))
+            self.mask_x.setValue(m["x"])
+            self.mask_y.setValue(m["y"])
+            self.mask_w.setValue(m["w"])
+            self.mask_h.setValue(m["h"])
+            self.mask_feather.setValue(int(m["feather"]))
+            self.mask_invert.setChecked(m["invert"])
+            self.mask_info.setText("Der Bereich bleibt an einer Stelle (Mitte in % des Bildes). Mitwandern mit einem Objekt folgt in einer späteren Version."
+                                   if not m["track"] else f"Der Bereich folgt einem Pfad ({len(m['track'])} Punkte).")
         self._loading = was
 
     def _on_fx_param(self, *_args) -> None:
@@ -1537,6 +1729,19 @@ class MainWindow(QMainWindow):
         end = self.fx_end.value()
         total = self.project.duration
         self.project.fx_set_span(self.fsel, start, end if end > 0 else (total if total > 0 else start + self.project.FX_MIN))
+        self._refresh_timeline_only()
+
+    def _on_mask_param(self, *_args) -> None:
+        if self._loading or not (0 <= self.fsel < len(self.project.effects)):
+            return
+        e = self.project.effects[self.fsel]
+        eff = fx.REGISTRY.get(e["id"])
+        if not (eff and eff.params):
+            return
+        old = fx.mask_params(e.get("mask"))
+        e["mask"] = {"shape": self.mask_shape.currentData() or "ellipse", "x": self.mask_x.value(), "y": self.mask_y.value(),
+                     "w": self.mask_w.value(), "h": self.mask_h.value(), "feather": float(self.mask_feather.value()),
+                     "invert": self.mask_invert.isChecked(), "track": old["track"]}
         self._refresh_timeline_only()
 
     # --------------------------------------------------------- Text-Handler
@@ -1666,13 +1871,38 @@ class MainWindow(QMainWindow):
                 continue
             self.media[f] = info
             kind = "Bild" if info.is_image else fmt_time(info.duration)
-            it = QListWidgetItem(f"{Path(f).name}   ({kind}, {info.width}×{info.height})")
+            it = QListWidgetItem(f"{Path(f).name}\n{kind}, {info.width}×{info.height}")
             it.setData(Qt.ItemDataRole.UserRole, f)
+            it.setToolTip(f)
             self.media_list.addItem(it)
+            self._start_thumb(f, info)
+        self.media_hint.setVisible(self.media_list.count() == 0)
         if errors:
             QMessageBox.warning(self, "Import", "Nicht alle Dateien konnten gelesen werden:\n\n" + "\n".join(errors))
         if files and not self.project.clips and files[0] in self.media:
             self._add_to_timeline(files[0])
+
+    def _start_thumb(self, path: str, info) -> None:
+        w = ThumbWorker(path, info.duration, info.is_image, self)
+        self._thumb_workers.append(w)
+        w.done.connect(self._on_thumb)
+        w.finished.connect(lambda w=w: self._thumb_workers.remove(w) if w in self._thumb_workers else None)
+        w.start()
+
+    def _on_thumb(self, src: str, png: str, err: str) -> None:
+        if err or not png:
+            return
+        for i in range(self.media_list.count()):
+            it = self.media_list.item(i)
+            if it.data(Qt.ItemDataRole.UserRole) == src:
+                it.setIcon(QIcon(QPixmap(png)))
+                break
+
+    def _filter_media(self, text: str) -> None:
+        q = (text or "").strip().lower()
+        for i in range(self.media_list.count()):
+            it = self.media_list.item(i)
+            it.setHidden(bool(q) and q not in str(it.data(Qt.ItemDataRole.UserRole)).lower())
 
     def _on_media_selected(self, item, _prev) -> None:
         if item:
@@ -1708,7 +1938,7 @@ class MainWindow(QMainWindow):
         if self.fsel >= len(self.project.effects):
             self.fsel = len(self.project.effects) - 1
         self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
-        self.dur_label.setText(f"Gesamtlänge: {fmt_time(self.project.duration)}")
+        self._update_duration()
         self._load_clip_fields()
         self._load_audio_fields()
         self._load_overlay_fields()
@@ -1817,7 +2047,7 @@ class MainWindow(QMainWindow):
         c.transition_dur = self.clip_trans_dur.value()
         self.project.sync_linked()
         self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
-        self.dur_label.setText(f"Gesamtlänge: {fmt_time(self.project.duration)}")
+        self._update_duration()
 
     # ----------------------------------------------- Drehen / Zuschneiden / Bewegung
     def _load_motion_fields(self) -> None:
@@ -2487,10 +2717,14 @@ class MainWindow(QMainWindow):
     def _hist_tick(self) -> None:
         state = self.project.to_json()
         self._history.observe(state, time.monotonic())
+        if state != self._live_last_state:
+            self._live_last_state = state
+            self._live_changed()
         name = Path(self._project_file).name if self._project_file else "Neues Projekt"
         self.setWindowTitle(f"{name}{' *' if state != self._saved_state else ''} – {APP_NAME} {VERSION}")
         self.act_undo.setEnabled(self._history.can_undo())
         self.act_redo.setEnabled(self._history.can_redo())
+        self._sync_zoom_slider()
 
     def _apply_state(self, state: str) -> None:
         self.project = Project.from_json(state)
@@ -2595,7 +2829,7 @@ class MainWindow(QMainWindow):
         self.project.sync_linked()
         if idx == self.sel:
             self._load_clip_fields()
-        self.dur_label.setText(f"Gesamtlänge: {fmt_time(self.project.duration)}")
+        self._update_duration()
         self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
 
     def _reorder_clip(self, src: int, dst: int) -> None:
@@ -2625,16 +2859,23 @@ class MainWindow(QMainWindow):
             self._load_clip_fields()
             self._load_audio_fields()
         src_ms = int((c.in_pt + local * c.speed) * 1000)
-        self._open_media(c.path, src_ms, int(c.out_pt * 1000), autoplay=False)
+        if self._live_valid_for(t):
+            self.player.setPosition(int((t - self._live_start_t) * 1000))      # bleibt in der Vorschau mit Effekten
+            self.player.pause()
+        else:
+            self._open_media(c.path, src_ms, int(c.out_pt * 1000), autoplay=False)
         self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
-        self.timeline.set_playhead(t)
+        self._show_time(t)
 
     # --------------------------------------------------------------- Player
-    def _open_media(self, path: str, seek_ms: int, limit_ms: int | None, autoplay: bool) -> None:
-        if is_image_path(path):          # Bilder zeigt der Player nicht – Ergebnis siehe „Vorschau mit Effekten“
+    def _open_media(self, path: str, seek_ms: int, limit_ms: int | None, autoplay: bool, live: bool = True) -> None:
+        if is_image_path(path):          # Bilder zeigt der Player nicht – die Live-Vorschau rechnet sie
             self.player.stop()
             self._cur_path = ""
-            self.statusBar().showMessage("Standbild – die Vorschau zeigt es über „Vorschau mit Effekten“.")
+            if self._live_on:
+                self._live_timer.start(450)
+            else:
+                self.statusBar().showMessage("Standbild – die Vorschau zeigt es über „Vorschau mit Effekten“.")
             return
         if path != self._preview_path:
             self._preview_path = ""
@@ -2646,6 +2887,8 @@ class MainWindow(QMainWindow):
             self.player.setSource(QUrl.fromLocalFile(path))
         else:
             self._apply_pending()
+        if live and self._live_on and path != self._live_path:
+            self._live_timer.start(450)          # Original läuft → Vorschau mit Effekten nachliefern
 
     def _apply_pending(self) -> None:
         if self._pending_seek is None:
@@ -2660,29 +2903,32 @@ class MainWindow(QMainWindow):
     def _on_media_status(self, status) -> None:
         if status in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia):
             self._apply_pending()
+        elif status == QMediaPlayer.MediaStatus.EndOfMedia:
+            self._live_end_of_media()
 
     def _on_position(self, pos: int) -> None:
-        if not self.seek.isSliderDown():
-            self.seek.setValue(int(pos))
-        self.time_label.setText(fmt_time(pos / 1000.0))
         if self._preview_path and self._cur_path == self._preview_path:
-            self.timeline.set_playhead(self._preview_start + pos / 1000.0)
+            self._show_time(self._preview_start + pos / 1000.0)
         elif 0 <= self.sel < len(self.project.clips):
             c = self.project.clips[self.sel]
             if c.path == self._cur_path:
                 rel = (pos / 1000.0 - c.in_pt) / max(c.speed, 0.01)
                 if -0.05 <= rel <= c.length + 0.05:
-                    self.timeline.set_playhead(self.project.clip_start(self.sel) + max(0.0, rel))
+                    self._show_time(self.project.clip_start(self.sel) + max(0.0, rel))
         if self._limit_ms is not None and pos >= self._limit_ms:
             self.player.pause()
+        self._live_on_position(pos)
 
     def toggle_play(self) -> None:
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.player.pause()
+            self._live_playing = False
             return
         if self._limit_ms is not None and self.player.position() >= self._limit_ms - 50 and 0 <= self.sel < len(self.project.clips):
             self.player.setPosition(int(self.project.clips[self.sel].in_pt * 1000))
         self.player.play()
+        if self._live_on and not (self._live_path and self._cur_path == self._live_path):
+            self._live_timer.start(150)
 
     # ---------------------------------------------------------- Export/Vorschau
     def _run_job(self, cmd, total, title: str, on_done) -> None:
@@ -2788,7 +3034,7 @@ class MainWindow(QMainWindow):
 
         def play(path: Path):
             self._cur_path = ""
-            self._open_media(str(path), 0, None, autoplay=True)
+            self._open_media(str(path), 0, None, autoplay=True, live=False)
             self._preview_path, self._preview_start = str(path), start      # nach _open_media setzen
             self.statusBar().showMessage(f"Vorschau ab {fmt_time(start)} (Auflösung {height}p)")
 
@@ -2815,6 +3061,159 @@ class MainWindow(QMainWindow):
                 play(part)
 
         self._run_job(cmd, total, "Vorschau wird berechnet …", done)
+
+    # ------------------------------------------------------- Live-Vorschau
+    def _live_height(self) -> int:
+        return min(360, int(self.cmb_prev_q.currentData() or 360))
+
+    def _set_live_label(self, text: str) -> None:
+        self.live_label.setText(text)
+
+    def set_live(self, on: bool) -> None:
+        self._live_on = bool(on)
+        settings.save({"live_preview": self._live_on})
+        if self._live_on:
+            self._live_timer.start(100)
+        else:
+            self._live_timer.stop()
+            self._live_pending = None
+            if self._live_worker is not None:
+                self._live_worker.cancel()
+            self._set_live_label("")
+
+    def _live_changed(self) -> None:
+        """Das Projekt wurde verändert: kurz warten (weitere Änderungen abwarten), dann neu rechnen."""
+        self._live_next_ready = None
+        if self._live_on and self.project.clips:
+            self._live_timer.start(350)
+
+    def _live_fire(self) -> None:
+        self._live_request()
+
+    def _live_valid_for(self, t: float) -> bool:
+        """Liegt die Zeit t in der Live-Vorschau, die im Player liegt und zum aktuellen Projekt passt?"""
+        return bool(self._live_path and self._cur_path == self._live_path
+                    and self._live_start_t - 0.02 <= t <= self._live_start_t + self._live_len - 0.4
+                    and self._live_state == self.project.to_json())
+
+    def _live_request(self, start: float | None = None, show: bool = True, at: float | None = None,
+                      autoplay: bool | None = None) -> None:
+        """Rechnet (bzw. holt aus dem Zwischenspeicher) die Live-Vorschau ab `start` (Standard: Abspielkopf)."""
+        if not self._live_on or not self.project.clips:
+            return
+        if self._worker is not None:                        # Export oder große Vorschau läuft → später
+            self._live_timer.start(1500)
+            return
+        if self._live_worker is not None:
+            if show:                                        # neuere Anfrage ersetzt die laufende
+                self._live_pending = (start, show, at, autoplay)
+                self._live_worker.cancel()
+            return
+        total = self.project.duration
+        t = max(0.0, self.timeline.playhead if start is None else start)
+        if t >= total - 0.2:
+            t = max(0.0, total - 2.0)
+        t = round(t, 1)
+        height, length = self._live_height(), self._live_len_cfg
+        state = self.project.to_json()
+        target = prevcache.path_for(self.project, t, length, height)
+        ln = max(0.5, min(length, total - t))
+        if target.exists() and target.stat().st_size > 0:
+            self._live_ready(target, t, ln, state, show, at, autoplay)
+            return
+        part = target.with_name(target.stem + ".part.mp4")
+        try:
+            wp, delta, wl = projwin.project_window(self.project, t, length)
+            cmd, tot, tmp = exporter.build_command(wp, str(part), draft=True, preview_height=height,
+                                                   start=delta, max_seconds=wl)
+        except Exception as exc:  # noqa: BLE001
+            diagnostics.log_error("Live-Vorschau nicht möglich: %s", exc)
+            self._set_live_label("Vorschau nicht möglich")
+            self.statusBar().showMessage(f"Live-Vorschau nicht möglich: {str(exc)[:160]}")
+            return
+        worker = ExportWorker(cmd, tot, self)
+        self._live_worker = worker
+        if show:
+            self._set_live_label("⟳ wird aktualisiert …")
+
+        def finished(err: str) -> None:
+            self._live_worker = None
+            shutil.rmtree(tmp, ignore_errors=True)
+            pend, self._live_pending = self._live_pending, None
+            if err:
+                try:
+                    part.unlink()
+                except OSError:
+                    pass
+                if "Abgebrochen" not in err:
+                    diagnostics.log_error("Live-Vorschau fehlgeschlagen: %s", err[-800:])
+                    self._set_live_label("Vorschau fehlgeschlagen")
+            else:
+                final = target
+                try:
+                    os.replace(part, target)
+                except OSError:
+                    final = part
+                if pend is None:
+                    if state != self.project.to_json():       # inzwischen wieder geändert → neu
+                        self._live_timer.start(50)
+                    else:
+                        self._live_ready(final, t, ln, state, show, at, autoplay)
+            if pend is not None:
+                self._live_request(*pend)
+            prevcache.cleanup(max_files=24)
+
+        worker.done.connect(finished)
+        worker.start()
+
+    def _live_ready(self, path: Path, t: float, ln: float, state: str, show: bool, at: float | None,
+                    autoplay: bool | None) -> None:
+        if not show:
+            self._live_next_ready = (t, path, state, ln)
+            return
+        self._live_show(path, t, ln, state, at, autoplay)
+
+    def _live_show(self, path: Path, start: float, ln: float, state: str, at: float | None = None,
+                   autoplay: bool | None = None) -> None:
+        """Lädt die fertige Live-Vorschau in den Player, an der Stelle, an der der Abspielkopf gerade steht."""
+        pos = self.timeline.playhead if at is None else at
+        if not (start - 0.06 <= pos <= start + ln + 0.06):
+            return                                          # Abspielkopf ist weitergezogen; neue Anfrage kommt von dort
+        playing = self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+        play = playing if autoplay is None else autoplay
+        self._live_path, self._live_state = str(path), state
+        self._live_start_t, self._live_len = start, ln
+        self._open_media(str(path), max(0, int(round((pos - start) * 1000))), None, autoplay=play, live=False)
+        self._preview_path, self._preview_start = str(path), start      # nach _open_media setzen
+        self._live_playing = play
+        self._set_live_label("● Live")
+
+    def _live_on_position(self, pos_ms: int) -> None:
+        """Beim Abspielen den nächsten Abschnitt schon vorab rechnen, damit es ohne Pause weitergeht."""
+        if not (self._live_on and self._live_path and self._cur_path == self._live_path):
+            return
+        if self.player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
+            return
+        self._live_playing = True
+        nxt = self._live_start_t + self._live_len
+        if (pos_ms > 0.45 * self._live_len * 1000 and nxt < self.project.duration - 0.05
+                and self._live_worker is None and self._live_next_ready is None):
+            self._live_request(start=nxt, show=False)
+
+    def _live_end_of_media(self) -> None:
+        """Die Live-Vorschau ist zu Ende: beim Abspielen nahtlos mit dem nächsten Abschnitt weitermachen."""
+        if not (self._live_on and self._live_path and self._cur_path == self._live_path and self._live_playing):
+            return
+        nxt = self._live_start_t + self._live_len
+        if nxt >= self.project.duration - 0.05:
+            self._live_playing = False
+            return
+        ready = self._live_next_ready
+        if ready and abs(ready[0] - nxt) < 0.11 and ready[2] == self.project.to_json():
+            self._live_next_ready = None
+            self._live_show(ready[1], ready[0], ready[3], ready[2], at=ready[0], autoplay=True)
+        else:
+            self._live_request(start=nxt, show=True, at=nxt, autoplay=True)
 
     @staticmethod
     def _open_folder(folder: str) -> None:
@@ -3074,6 +3473,12 @@ class MainWindow(QMainWindow):
                     return
         self._hist_timer.stop()
         self._autosave_timer.stop()
+        self._live_timer.stop()
+        for tw in list(self._thumb_workers):
+            tw.wait(2000)
+        if self._live_worker is not None:
+            self._live_worker.cancel()
+            self._live_worker.wait(3000)
         self._remove_autosave()
         if self._grade_worker is not None:
             self._grade_worker.wait(3000)

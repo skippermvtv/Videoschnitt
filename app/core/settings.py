@@ -5,7 +5,7 @@ import json
 
 from .. import paths
 
-DEFAULTS = {"preview_len": 8.0, "preview_height": 360, "hw_encode": False}
+DEFAULTS = {"preview_len": 8.0, "preview_height": 360, "hw_encode": False, "live_preview": True, "live_len": 6.0}
 
 
 def _file():

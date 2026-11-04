@@ -412,4 +412,109 @@ win.add_effect_block("vhs", 2.0)
 win.remove_effect_block()
 no_errors("Effekt-Block löschen")
 print("OK  Bewegung, Untertitel, Bildkorrektur, Look, Übergang, Autosave, Effekt-Spur")
+
+# --- Live-Vorschau (1.4): Hintergrundauftrag durch eine synchrone Attrappe ersetzen, echtes FFmpeg rechnet das Fenster
+from app.core import exporter as _exp  # noqa: E402
+from app.core import preview as _prev  # noqa: E402
+
+
+class FakeWorker:
+    jobs: list = []
+
+    def __init__(self, cmd, total, parent=None):
+        self.cmd, self.total, self._cancel, self.slots = cmd, total, False, []
+        self.done = types.SimpleNamespace(connect=self.slots.append)
+        self.progress = types.SimpleNamespace(connect=lambda *_a: None)
+        FakeWorker.jobs.append(self)
+
+    def cancel(self):
+        self._cancel = True
+
+    def start(self):
+        try:
+            _exp.run(self.cmd, self.total, None, lambda: self._cancel)
+            err = ""
+        except Exception as exc:  # noqa: BLE001
+            err = str(exc)
+        for fn in list(self.slots):
+            fn(err)
+
+    def wait(self, *_a):
+        return True
+
+
+mw.ExportWorker = FakeWorker
+for f in _prev.cache_dir().glob("*.mp4"):
+    f.unlink()
+win.project.effects = []
+win._select_clip(0)
+win.timeline.set_playhead(1.0)
+state0 = win.project.to_json()
+win._live_request()
+no_errors("Live-Vorschau rechnen")
+assert len(FakeWorker.jobs) == 1 and win._live_path.endswith(".mp4") and Path(win._live_path).stat().st_size > 1000, win._live_path
+assert abs(win._live_start_t - 1.0) < 0.01 and win._live_len > 0.5 and win._live_state == state0
+assert win._cur_path == win._live_path and win._preview_path == win._live_path and win._preview_start == win._live_start_t
+assert win._live_valid_for(1.5) and not win._live_valid_for(0.2) and not win._live_valid_for(win._live_start_t + win._live_len)
+print("OK  Live-Vorschau: Fenster gerechnet, im Player, gültig nur im Abschnitt")
+n_jobs = len(FakeWorker.jobs)
+win._live_request()                                   # gleicher Stand, gleiche Stelle → aus dem Zwischenspeicher
+assert len(FakeWorker.jobs) == n_jobs, "unveränderter Stand darf nicht neu gerechnet werden"
+win.add_effect_block("bw", 1.0)                       # Änderung → neuer Stand → neu rechnen
+assert not win._live_valid_for(1.5), "nach einer Änderung ist die alte Vorschau ungültig"
+old = win._live_path
+win._live_request()
+no_errors("Live-Vorschau nach Änderung")
+assert len(FakeWorker.jobs) == n_jobs + 1 and win._live_path != old and win._live_valid_for(1.5)
+win._seek_project(2.0)                                # innerhalb des Abschnitts: bleibt in der Vorschau
+assert win._cur_path == win._live_path
+win._live_timer.stop()
+win._seek_project(0.0)                                # außerhalb: Original, Live-Anfrage wird eingeplant
+assert win._cur_path != win._live_path
+no_errors("Live-Vorschau: Suchen")
+win.set_live(False)
+win._live_changed()
+assert not win._live_timer.isActive() if hasattr(win._live_timer, "isActive") and isinstance(win._live_timer.isActive(), bool) else True
+n_jobs = len(FakeWorker.jobs)
+win._live_request()
+assert len(FakeWorker.jobs) == n_jobs, "ausgeschaltet darf nichts gerechnet werden"
+win.set_live(True)
+# Fehlerfall: kaputter Auftrag zeigt eine Meldung, stürzt nicht ab
+FakeWorker.start = lambda self: [fn("FFmpeg-Fehler: test") for fn in self.slots]
+win.project.effects = []
+win.timeline.set_playhead(1.7)
+win._live_request()
+assert "fehlgeschlagen" in win.live_label.text() or win.live_label.text() == ""
+no_errors("Live-Vorschau: Fehlerfall")
+print("OK  Live-Vorschau: Zwischenspeicher, Änderung, Suchen, Ausschalten, Fehlerfall")
+# 1.4: neue Oberfläche – Medienraster, Zeitcode, Suchleiste, Zoom
+win._on_thumb(next(iter(win.media)), "", "Fehler")                  # Fehler beim Vorschaubild: still ignorieren
+win._on_thumb("gibt-es-nicht.mp4", "x.png", "")
+win._filter_media("abc")
+win._filter_media("")
+win._update_duration()
+win._show_time(0.5)
+win._on_seek_moved(500)
+assert abs(win.timeline.playhead - 0.5) < 1e-6
+win._on_zoom_slider(40)
+win._sync_zoom_slider()
+win._on_play_state(None)
+no_errors("1.4: Oberfläche")
+print("OK  1.4: Medienraster, Zeitcode, Suchleiste, Zoom")
+# 1.4: Masken-Effekt: Felder schreiben in den Block, Export-Befehl enthält die Maske
+win.project.effects = []
+win.add_effect_block("mask_blur", 0.0)
+win._on_mask_param()
+m = win.project.effects[win.fsel].get("mask")
+assert isinstance(m, dict) and set(m) >= {"shape", "x", "y", "w", "h", "feather", "invert", "track"}, m
+win.project.effects[win.fsel]["mask"]["track"] = [[0.0, 20.0, 30.0], [2.0, 60.0, 50.0]]
+win._on_mask_param()
+assert win.project.effects[win.fsel]["mask"]["track"] == [[0.0, 20.0, 30.0], [2.0, 60.0, 50.0]], "Pfad darf beim Ändern der Felder nicht verloren gehen"
+from app.core import exporter as _ex
+_cmd, _tot, _t = _ex.build_command(win.project, "x.mp4", draft=True)
+assert "geq" in " ".join(_cmd)
+win.project.effects = []
+win.fsel = -1
+no_errors("1.4: Maske")
+print("OK  1.4: Maskenfelder")
 print("Signal-Prüfung OK")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QThread, Signal
 
-from ..core import exporter, grade, updater, waveform
+from ..core import exporter, grade, thumbs, updater, waveform
 
 
 class ExportWorker(QThread):
@@ -128,3 +128,17 @@ class DiagnoseWorker(QThread):
             self.done.emit(diagnostics.build_report())
         except Exception as exc:  # noqa: BLE001
             self.done.emit(f"Diagnose fehlgeschlagen: {exc}")
+
+
+class ThumbWorker(QThread):
+    done = Signal(str, str, str)  # (Quelldatei, PNG-Pfad, Fehler)
+
+    def __init__(self, src: str, duration: float, is_image: bool, parent=None):
+        super().__init__(parent)
+        self._src, self._dur, self._img = src, duration, is_image
+
+    def run(self) -> None:
+        try:
+            self.done.emit(self._src, thumbs.make_thumb(self._src, self._dur, self._img), "")
+        except Exception as exc:  # noqa: BLE001
+            self.done.emit(self._src, "", str(exc))

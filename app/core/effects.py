@@ -27,13 +27,14 @@ class Effect:
     id: str
     name: str
     category: str
-    build: Callable[[str, str, float, Ctx], str]
+    build: Callable[..., str]
     default: int = 60
+    params: bool = False      # Effekt bekommt zusätzlich die Block-Einstellungen (Masken: Form, Ort, Tracking)
 
 
-def effect(id: str, name: str, category: str, default: int = 60):
+def effect(id: str, name: str, category: str, default: int = 60, params: bool = False):
     def deco(fn):
-        REGISTRY[id] = Effect(id, name, category, fn, default)
+        REGISTRY[id] = Effect(id, name, category, fn, default, params)
         return fn
     return deco
 
@@ -301,6 +302,122 @@ def _dutch(i, o, k, c):
                        f"scale=w={even(c.width * z)}:h={even(c.height * z)},crop={w}:{h}")
 
 
+# ------------------------------------------------------------ Masken (ab 1.3.1)
+# Ein Masken-Effekt wirkt nur in einem Bereich (Ellipse oder Rechteck), der mit einem Objekt mitwandern kann.
+# Block-Einstellung "mask": {"shape": "ellipse"|"rect", "x", "y", "w", "h" (Mitte und Größe in % des Bildes),
+#                            "feather" 0…100, "invert": bool, "track": [[t, x, y], …]}  (t = Sekunden ab Blockanfang)
+MASK_DEFAULTS: dict = {"shape": "ellipse", "x": 50.0, "y": 50.0, "w": 30.0, "h": 30.0, "feather": 25.0,
+                       "invert": False, "track": []}
+MASK_TRACK_MAX = 60
+
+
+def mask_params(m: dict | None) -> dict:
+    """Ergänzt Standardwerte und begrenzt alles auf sinnvolle Bereiche."""
+    out = dict(MASK_DEFAULTS)
+    src = m if isinstance(m, dict) else {}
+
+    def num(key, lo, hi):
+        try:
+            out[key] = min(hi, max(lo, float(src.get(key, out[key]))))
+        except (TypeError, ValueError):
+            pass
+    num("x", 0.0, 100.0)
+    num("y", 0.0, 100.0)
+    num("w", 1.0, 200.0)
+    num("h", 1.0, 200.0)
+    num("feather", 0.0, 100.0)
+    out["shape"] = "rect" if src.get("shape") == "rect" else "ellipse"
+    out["invert"] = bool(src.get("invert", False))
+    pts = []
+    for q in src.get("track") or []:
+        try:
+            pts.append([max(0.0, float(q[0])), min(100.0, max(0.0, float(q[1]))), min(100.0, max(0.0, float(q[2])))])
+        except (TypeError, ValueError, IndexError):
+            continue
+    pts.sort(key=lambda q: q[0])
+    if len(pts) > MASK_TRACK_MAX:                        # gleichmäßig ausdünnen
+        step = (len(pts) - 1) / (MASK_TRACK_MAX - 1)
+        pts = [pts[round(i * step)] for i in range(MASK_TRACK_MAX)]
+    out["track"] = pts
+    return out
+
+
+def _num(x: float) -> str:
+    return f"{x:.5f}".rstrip("0").rstrip(".") or "0"
+
+
+def _piecewise(points: list[list[float]], col: int, start: float, const: float) -> str:
+    """Stückweise lineare FFmpeg-Formel in T (Sekunden); Werte in % → Anteil 0…1."""
+    if not points:
+        return _num(const / 100.0)
+    tt = f"(T-{_num(start)})"
+    expr = _num(points[-1][col] / 100.0)
+    for a, b in zip(points[-2::-1], points[::-1]):
+        dt = b[0] - a[0]
+        if dt < 1e-4:
+            continue
+        slope = (b[col] - a[col]) / 100.0 / dt
+        expr = f"if(lt({tt},{_num(b[0])}),{_num(a[col] / 100.0)}+({tt}-{_num(a[0])})*{_num(slope)},{expr})"
+    return f"if(lt({tt},{_num(points[0][0])}),{_num(points[0][col] / 100.0)},{expr})"
+
+
+def mask_expression(m: dict | None, start: float = 0.0, invert: bool = False) -> str:
+    """geq-Formel: 255 innerhalb der Form (mit weicher Kante), 0 außerhalb. T ist die Zeit im Video."""
+    p = mask_params(m)
+    cx = _piecewise(p["track"], 1, start, p["x"])
+    cy = _piecewise(p["track"], 2, start, p["y"])
+    rx, ry = _num(p["w"] / 200.0), _num(p["h"] / 200.0)
+    dx, dy = f"((X+0.5)/W-{cx})/{rx}", f"((Y+0.5)/H-{cy})/{ry}"
+    d = f"hypot({dx},{dy})" if p["shape"] == "ellipse" else f"max(abs({dx}),abs({dy}))"
+    fe = _num(0.03 + 0.95 * p["feather"] / 100.0)
+    m01 = f"clip((1+{fe}/2-{d})/{fe},0,1)"
+    if bool(p["invert"]) != bool(invert):
+        m01 = f"(1-{m01})"
+    return f"255*{m01}"
+
+
+def _mask_effect(kind: str, i: str, o: str, k: float, c: Ctx, m: dict | None, start: float, invert: bool = False) -> str:
+    W, H = even(c.width), even(c.height)
+    s = H / 1080.0
+    if kind == "blur":
+        sig = max(1.0, (4 + 36 * k) * s) / 4.0
+        fx = f"scale={max(2, W // 4)}:{max(2, H // 4)}:flags=bilinear,gblur=sigma={n(sig, 2)}:steps=2,scale={W}:{H}:flags=bilinear"
+    elif kind == "mosaic":
+        size = max(4, int(round((6 + 54 * k) * s)))
+        fx = f"pixelize=w={size}:h={size}"
+    elif kind == "dim":
+        fx = f"eq=brightness={n(-(0.25 + 0.65 * k))}:saturation={n(1 - 0.6 * k)}"
+    else:                                              # black
+        fx = "lutyuv=y=16:u=128:v=128"
+    mw, mh = min(W, 480) // 2 * 2, max(2, int(round(min(W, 480) * H / W / 2)) * 2)
+    expr = mask_expression(m, start, invert)
+    b, t, e = f"{o}_b", f"{o}_t", f"{o}_e"
+    return (f"[{i}]split=3[{b}][{t}][{e}];"
+            f"[{t}]scale={mw}:{mh}:flags=bilinear,format=gray,geq=lum='{expr}',scale={W}:{H}:flags=bilinear[{o}_m];"
+            f"[{e}]{fx},format=yuva420p[{o}_f];[{o}_f][{o}_m]alphamerge[{o}_a];"
+            f"[{b}][{o}_a]overlay[{o}]")
+
+
+@effect("mask_blur", "Bereich weichzeichnen (Maske)", "Maske", 60, params=True)
+def _mask_blur(i, o, k, c, m=None, start=0.0):
+    return _mask_effect("blur", i, o, k, c, m, start)
+
+
+@effect("mask_mosaic", "Bereich verpixeln (Maske)", "Maske", 40, params=True)
+def _mask_mosaic(i, o, k, c, m=None, start=0.0):
+    return _mask_effect("mosaic", i, o, k, c, m, start)
+
+
+@effect("mask_dim", "Bereich hervorheben, Rest abdunkeln (Maske)", "Maske", 70, params=True)
+def _mask_dim(i, o, k, c, m=None, start=0.0):
+    return _mask_effect("dim", i, o, k, c, m, start, invert=True)
+
+
+@effect("mask_black", "Bereich schwärzen (Maske)", "Maske", 100, params=True)
+def _mask_black(i, o, k, c, m=None, start=0.0):
+    return _mask_effect("black", i, o, k, c, m, start)
+
+
 def build_graph(effects: list[dict], in_label: str, out_label: str, ctx: Ctx, prefix: str = "fx") -> list[str]:
     """effects: [{"id": "glitch", "intensity": 70, "start": 0, "end": 3}, …]
 
@@ -318,14 +435,15 @@ def build_graph(effects: list[dict], in_label: str, out_label: str, ctx: Ctx, pr
         k = max(0.0, min(1.0, float(item.get("intensity", eff.default)) / 100.0))
         nxt = out_label if idx == len(active) - 1 else f"{prefix}{idx}"
         start, end = item.get("start"), item.get("end")
+        extra = (item.get("mask"), 0.0 if start is None else float(start)) if eff.params else None
         if start is None and end is None:
-            parts.append(eff.build(cur, nxt, k, ctx))
+            parts.append(eff.build(cur, nxt, k, ctx, *extra) if extra else eff.build(cur, nxt, k, ctx))
         else:
             s = 0.0 if start is None else float(start)
             e_ = 1e9 if end is None else float(end)
             keep, work, done = f"{prefix}{idx}_k", f"{prefix}{idx}_w", f"{prefix}{idx}_d"
             parts.append(f"[{cur}]split[{keep}][{work}]")
-            parts.append(eff.build(work, done, k, ctx))
+            parts.append(eff.build(work, done, k, ctx, *extra) if extra else eff.build(work, done, k, ctx))
             parts.append(f"[{keep}][{done}]overlay=enable='between(t,{s},{e_})'[{nxt}]")
         cur = nxt
     return parts

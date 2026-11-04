@@ -70,6 +70,14 @@ def _mein_effekt(i, o, k, c):          # k = Stärke 0.0 … 1.0
 
 Python 3.12+ und Inno Setup 6 installieren, dann `build.bat` doppelklicken.
 
+## Oberfläche und Live-Vorschau (ab 1.4)
+
+- **Oben links** die Reiter: *Medien* (Raster mit Vorschaubildern, Import, Suche), *Format*, *Bild*, *Effekte*, *Text*, *Clip*, *Ton*, *Bild-in-Bild*, *Untertitel*, *Bewegung*. Rechts daneben der Knopf **EXPORT**.
+- **Oben rechts** die Vorschau mit Zeitcode, Suchleiste über das ganze Projekt und den Knöpfen Anfang / Abspielen / Ende.
+- **Unten** die Timeline mit Werkzeugleiste und Zoomregler.
+- **● Live**: Änderungen sind nach kurzer Zeit im Player zu sehen. Das Programm rechnet dafür im Hintergrund einen kurzen Abschnitt (Einstellung `live_len`, Standard 6 s) am Abspielkopf in kleiner Auflösung. Während es rechnet, steht neben dem Knopf ein Hinweis.
+- **Masken** (Effekte der Kategorie *Maske*): Form, Mitte, Größe und weiche Kante beim gewählten Effekt-Block.
+
 ## Effekt-Spur (ab 1.2)
 
 Alle Effekte liegen als Blöcke auf der Spur **FX Effekte** ganz oben in der Timeline – so siehst du auf einen Blick, wann welcher Effekt wirkt.

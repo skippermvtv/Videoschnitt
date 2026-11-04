@@ -379,7 +379,9 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
                 graph.append(f"[{cur_a}][a{i}]acrossfade=d={d:.3f}[{na}]")
                 curlen += lens[i] - d
             else:
-                graph.append(f"[{cur_v}][{cur_a}][w{i}][a{i}]concat=n=2:v=1:a=1[{nv}][{na}]")
+                # concat liefert die Zeitbasis 1/1000000; ein folgender xfade verlangt dieselbe wie [w{i}] (1/fps)
+                graph.append(f"[{cur_v}][{cur_a}][w{i}][a{i}]concat=n=2:v=1:a=1[{nv}c][{na}]")
+                graph.append(f"[{nv}c]fps={fps}[{nv}]")
                 curlen += lens[i]
             cur_v, cur_a = nv, na
         total = curlen

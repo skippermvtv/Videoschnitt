@@ -58,12 +58,12 @@ def main() -> int:
     win.cmb_format.setCurrentIndex(win.cmb_format.findData("tiktok"))
     assert win.project.format_id == "tiktok"
 
-    win.tabs.setCurrentIndex(3)
+    win.tabs.setCurrentIndex(4)
     win.add_text()
     assert len(win.project.texts) == 1
 
     # Bildkorrektur (Tab "Bild") mit einem echten Testvideo
-    assert win.tabs.count() == 9 and win.tabs.tabText(1) == "Bild" and win.tabs.tabText(5) == "Ton" and win.tabs.tabText(6) == "Bild-in-Bild" and win.tabs.tabText(7) == "Untertitel" and win.tabs.tabText(8) == "Bewegung"
+    assert win.tabs.count() == 10 and win.tabs.tabText(0) == "Medien" and win.tabs.tabText(2) == "Bild" and win.tabs.tabText(6) == "Ton" and win.tabs.tabText(7) == "Bild-in-Bild" and win.tabs.tabText(8) == "Untertitel" and win.tabs.tabText(9) == "Bewegung"
     vid = str(Path(tempfile.mkdtemp()) / "t.mp4")
     subprocess.run([find_binary("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=3",
                     "-f", "lavfi", "-i", "sine=frequency=300:duration=3", "-c:v", "libx264", "-c:a", "aac", "-shortest", vid], check=True)
@@ -76,7 +76,7 @@ def main() -> int:
     assert win.project.clips[0].grade.get("temperature") == 40, win.project.clips[0].grade
     win._grade_sliders["brightness"].setValue(25)
     assert win.project.clips[0].grade.get("brightness") == 25
-    win.tabs.setCurrentIndex(1)
+    win.tabs.setCurrentIndex(2)
     win._grade_timer.stop()
     win._update_grade_preview()
     for _ in range(120):
@@ -165,7 +165,7 @@ def main() -> int:
     win.detach_selected_audio()
     assert win.project.clips[0].audio_detached and win.asel == 0 and win.aud_group.isEnabled()
     win.add_audio_files([wav], track=2)
-    assert len(win.project.audio_clips) == 2 and win.tabs.currentIndex() == 5
+    assert len(win.project.audio_clips) == 2 and win.tabs.currentIndex() == 6
     win.aud_vol.setValue(50)
     win.aud_loop.setChecked(True)
     win.aud_fin.setValue(0.5)
@@ -181,7 +181,7 @@ def main() -> int:
         if wav in win._waves:
             break
     assert wav in win._waves, "Wellenform fehlt"
-    win.tabs.setCurrentIndex(5)
+    win.tabs.setCurrentIndex(6)
     app.processEvents()
     win.timeline.update()
     app.processEvents()
@@ -192,7 +192,7 @@ def main() -> int:
     win.import_files([png])
     assert win.media[png].is_image
     win.add_overlay_files([png])
-    assert len(win.project.overlays) == 1 and win.osel == 0 and win.tabs.currentIndex() == 6 and win.ov_group.isEnabled()
+    assert len(win.project.overlays) == 1 and win.osel == 0 and win.tabs.currentIndex() == 7 and win.ov_group.isEnabled()
     win.ov_size.setValue(40.0)
     win.ov_corner.setCurrentIndex(win.ov_corner.findData("bl"))
     o = win.project.overlays[0]
@@ -226,8 +226,8 @@ def main() -> int:
     win.sub_anim.setCurrentIndex(win.sub_anim.findData("fade"))
     win.sub_box.setChecked(True)
     assert win.project.sub_style.anim == "fade" and win.project.sub_style.box
-    win.tabs.setCurrentIndex(7)
-    win.tabs.setCurrentIndex(3)
+    win.tabs.setCurrentIndex(8)
+    win.tabs.setCurrentIndex(4)
     win.text_list.setCurrentRow(0)
     win.text_anim.setCurrentIndex(win.text_anim.findData("typewriter"))
     assert win.project.texts[0].anim == "typewriter"
@@ -237,7 +237,7 @@ def main() -> int:
 
     # Bewegung und Transform
     win._select_clip(0)
-    win.tabs.setCurrentIndex(8)
+    win.tabs.setCurrentIndex(9)
     assert win.motion_body.isEnabled()
     win.cmb_motion.setCurrentIndex(win.cmb_motion.findData("zoom_in"))
     c0 = win.project.clips[0]
@@ -303,7 +303,7 @@ def main() -> int:
     # 1.2: Effekt-Spur (FX): Blöcke anlegen, auswählen, ändern, ablegen, löschen; Timeline wirklich zeichnen
     from PySide6.QtCore import QPointF, Qt
     from PySide6.QtGui import QDropEvent
-    assert win.tabs.tabText(2) == "Effekte"
+    assert win.tabs.tabText(3) == "Effekte"
     n0 = len(win.project.effects)
     win.add_effect_block("vhs", 0.5)
     assert len(win.project.effects) == n0 + 1 and win.fsel == n0 and win.fx_box.isEnabled() and win.btn_fx_del.isEnabled()
@@ -362,6 +362,49 @@ def main() -> int:
     diagnostics.setup_logging()
     diagnostics.log("ui_smoke 1.1 ok")
     assert diagnostics.log_file().exists()
+
+
+    # 1.4: Maske im Effekt-Kasten
+    win.tabs.setCurrentIndex(3)
+    win.add_effect_block("mask_mosaic", 0.0)
+    assert win.fx_mask_box.isVisibleTo(win), "Maskenfelder fehlen bei Masken-Effekt"
+    win.mask_w.setValue(44.0)
+    win.mask_shape.setCurrentIndex(win.mask_shape.findData("rect"))
+    mk = win.project.effects[win.fsel]["mask"]
+    assert mk["w"] == 44.0 and mk["shape"] == "rect", mk
+    win.add_effect_block("vhs", 0.0)
+    assert not win.fx_mask_box.isVisibleTo(win), "Maskenfelder bei normalem Effekt sichtbar"
+
+    # 1.4: neue Oberfläche – Medienraster mit Vorschaubildern, Suche, Suchleiste über die Projektzeit, Zoom, Zeitcode
+    from PySide6.QtWidgets import QToolButton
+    win.tabs.setCurrentIndex(0)
+    assert win.media_list.count() >= 2 and not win.media_hint.isVisibleTo(win)
+    for _ in range(120):                                   # Vorschaubilder entstehen im Hintergrund
+        app.processEvents()
+        time.sleep(0.05)
+        if all(not win.media_list.item(i).icon().isNull() for i in range(win.media_list.count())):
+            break
+    assert all(not win.media_list.item(i).icon().isNull() for i in range(win.media_list.count())), "Vorschaubilder fehlen"
+    win.media_search.setText("zzz-gibt-es-nicht")
+    assert all(win.media_list.item(i).isHidden() for i in range(win.media_list.count()))
+    win.media_search.setText("")
+    assert not any(win.media_list.item(i).isHidden() for i in range(win.media_list.count()))
+    win._update_duration()
+    assert win.seek.maximum() == int(win.project.duration * 1000) and win.project.duration > 0
+    win._show_time(1.25)
+    assert win.time_label.text() == "0:01.2" or win.time_label.text() == "0:01.3", win.time_label.text()
+    assert win.seek.value() == 1250 and abs(win.timeline.playhead - 1.25) < 1e-6
+    win.zoom_slider.setValue(50)
+    app.processEvents()
+    assert win.timeline.zoom > 1.5, win.timeline.zoom
+    win.timeline.zoom_fit()
+    win._sync_zoom_slider()
+    assert win.zoom_slider.value() == 0
+    assert win.btn_export.objectName() == "primary" and win.btn_export.isVisibleTo(win)
+    assert len([b for b in win.findChildren(QToolButton) if b.toolTip()]) >= 10
+    win.resize(1100, 700)
+    app.processEvents()
+    win.grab()                                             # zeichnet die ganze neue Oberfläche (Reiterleiste, Raster, Leisten)
 
     no_slot_errors("Ende des Tests")
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "ui_smoke.png")

@@ -1,5 +1,15 @@
 # Änderungen
 
+## 1.4.0
+- **Neue Oberfläche** nach dem Vorbild gängiger Schnittprogramme: Reiterleiste oben links (Medien, Format, Bild, Effekte, Text, Clip, Ton, Bild-in-Bild, Untertitel, Bewegung) mit **EXPORT**-Knopf, große Vorschau oben rechts, Timeline unten mit Werkzeugleiste (Rückgängig, Wiederholen, Löschen, Teilen, Verschieben, Ton trennen, Musik und Bild-in-Bild hinzufügen, Zoomregler, „Alles“).
+  - Neuer Reiter **Medien**: Raster mit Vorschaubildern, Suchfeld, „Importieren“; Doppelklick legt auf die Timeline. Vorschaubilder werden im Hintergrund erzeugt und zwischengespeichert.
+  - Vorschau mit **Zeitcode**, Suchleiste über die ganze Projektlänge (Klick springt), Knöpfe Anfang / Abspielen / Ende.
+  - Dunkles Design mit türkisen Akzenten; der Name steht rot oben rechts in der Menüleiste. Neues Menü „Datei“.
+- **Live-Vorschau**: Änderungen an Effekten, Bild, Ton, Text, Bewegung usw. sind nach kurzer Zeit direkt im Player zu sehen, ohne „Vorschau ab Abspielkopf“. Ein kurzer Abschnitt am Abspielkopf wird im Hintergrund neu gerechnet, beim Abspielen schon der nächste vorab. Ausschaltbar mit „● Live“. Die alte Vorschau (Strg+P) bleibt für höhere Qualität.
+- **Masken-Effekte** (Bereich weichzeichnen, verpixeln, hervorheben, schwärzen): Form, Mitte, Größe und weiche Kante im Reiter „Effekte“. Mitwandern mit einem Objekt (Tracking) und Videostabilisierung folgen noch.
+- **Fehler behoben (Export):** Übergang → harter Schnitt → Übergang brach mit „timebase do not match“ ab. Nach dem harten Schnitt wird jetzt die Bildrate angeglichen.
+- Neue Tests: Zeitfenster-Projekt (`test_window.py`), Masken (`test_masks.py`), erweiterte Oberflächen-Prüfungen für Live-Vorschau, Medienraster und Maskenfelder.
+
 ## 1.3.0
 - **Farbräder** (Schatten, Mitten, Lichter) im Reiter „Bild“: ziehen = Farbstich, Doppelklick = zurücksetzen.
 - **Kurven-Editor** für Helligkeit, Rot, Grün und Blau (bis 12 Punkte). Die gezeichnete Kurve entspricht dem Ergebnis von FFmpeg.
