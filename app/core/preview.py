@@ -28,6 +28,10 @@ def key(project: Project, start: float, length: float, height: int) -> str:
             parts.append(f"{path}|{st.st_size}|{st.st_mtime_ns}")
         except OSError:
             parts.append(path)
+    if any(int(getattr(c, "stabilize", 0) or 0) > 0 for c in project.clips):      # Analyse fertig? Dann sieht das Bild anders aus
+        from . import stabilize
+        parts.append("stab:" + "".join("1" if stabilize.lookup(c.path, c.in_pt, c.out_pt) else "0"
+                                       for c in project.clips if getattr(c, "stabilize", 0) and not c.is_image))
     return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()[:20]
 
 

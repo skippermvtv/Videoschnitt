@@ -517,4 +517,53 @@ win.project.effects = []
 win.fsel = -1
 no_errors("1.4: Maske")
 print("OK  1.4: Maskenfelder")
+# 1.4.1: Tracking-Ergebnis übernehmen, Fehlerfall, Pfad löschen
+from app.core import tracker as _tr
+win.add_effect_block("mask_blur", 0.0)
+_e = win.project.effects[win.fsel]
+win._track_target = _e
+win._track_done(_tr.TrackResult(points=[[0.0, 20.0, 30.0], [1.0, 60.0, 50.0]], frames=12, lost=0, seconds=1.0), "")
+_m = win.project.effects[win.fsel]["mask"]
+assert _m["track"] == [[0.0, 20.0, 30.0], [1.0, 60.0, 50.0]] and (_m["x"], _m["y"]) == (20.0, 30.0), _m
+win._track_target = _e
+win._track_done(None, "Der Block ist zu kurz zum Verfolgen.")
+assert win.project.effects[win.fsel]["mask"]["track"], "Fehler darf den Pfad nicht löschen"
+win._track_target = {"id": "fremd"}
+win._track_done(_tr.TrackResult(points=[[0.0, 1.0, 1.0]], frames=1, lost=0, seconds=0.1), "")
+assert win.project.effects[win.fsel]["mask"]["track"][0][1] == 20.0, "fremder Block darf nichts ändern"
+win._track_clear()
+assert win.project.effects[win.fsel]["mask"]["track"] == []
+win.project.effects = []
+win.fsel = -1
+no_errors("1.4.1: Tracking")
+print("OK  1.4.1: Tracking-Übernahme")
+# 1.4.1: Stabilisierung – Analyse wird vor Live-Vorschau/Export eingeplant, Fehler → Notlösung ohne Endlosschleife
+from app.core import stabilize as _st
+if _st.available():
+    _c = win.project.clips[0]
+    _c.stabilize = 50
+    _ran = []
+    assert win._stab_wait(lambda: _ran.append(1)) is True and win._stab_worker is not None, "Analyse muss starten"
+    assert win._stab_wait(lambda: _ran.append(2)) is True, "zweite Anfrage reiht sich ein"
+    win._stab_done("")
+    assert _ran == [1, 2] and win._stab_worker is None, _ran
+    win._stab_fail_state = ""
+    win._stab_wait(None)
+    win._stab_done("FFmpeg-Fehler: test")
+    assert win._stab_wait(None) is False, "nach Fehler keine Endlosschleife"
+    _c.stabilize = 0
+    win._stab_fail_state = ""
+    assert win._stab_wait(None) is False, "ohne Stabilisierung nichts zu tun"
+    no_errors("1.4.1: Stabilisierung")
+    print("OK  1.4.1: Stabilisierung (Ablauf)")
+# 1.4.1: Medien aus dem Raster einfügen, Stumm-Schalter im Spurkopf
+_vid = next(iter(win.media))
+_n = len(win.project.clips)
+win._on_media_dropped([_vid, _vid], 0)
+assert len(win.project.clips) == _n + 2 and win.sel == 1, (len(win.project.clips), win.sel)
+win._on_media_dropped([_vid], 999)
+assert len(win.project.clips) == _n + 3 and win.sel == _n + 2
+win._on_lane_mute(2)
+no_errors("1.4.1: Medien ablegen / Spurkopf")
+print("OK  1.4.1: Medien ablegen, Spurkopf")
 print("Signal-Prüfung OK")

@@ -8,7 +8,7 @@ import time
 import uuid
 from pathlib import Path
 
-from PySide6.QtCore import QMimeData, QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QMimeData, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QKeySequence, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
@@ -16,13 +16,13 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QDialog, QDialogButtonBox, QTextBrowser, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem,
     QMainWindow, QMessageBox, QPlainTextEdit, QProgressDialog, QPushButton, QSlider,
-    QFrame, QLineEdit, QListView, QScrollArea, QSplitter, QStyle, QToolButton, QTreeWidget, QTreeWidgetItem,
+    QFrame, QLineEdit, QListView, QScrollArea, QSplitter, QStackedWidget, QStyle, QToolButton, QTreeWidget, QTreeWidgetItem,
     QVBoxLayout, QWidget,
 )
 
 from .. import paths
 from ..core import effects as fx
-from ..core import diagnostics, exporter, grade as gradelib, preview as prevcache, presets, settings, subtitles as subs, updater, window as projwin
+from ..core import diagnostics, exporter, grade as gradelib, preview as prevcache, presets, settings, stabilize, subtitles as subs, updater, window as projwin
 from ..core.history import History
 from ..core.fontcheck import missing_chars
 from ..core.helptext import help_html
@@ -30,10 +30,11 @@ from ..core.project import (IMAGE_MAX, OVERLAY_CORNERS, TRACK_NAMES, AudioClip, 
                             TEXT_ANIMS, Project, SubtitleCue, TextLayer, is_image_path, probe, probe_audio)
 from ..version import APP_NAME, VERSION
 from .colorwidgets import ColorWheel, CurveEditor
+from .maskcanvas import MaskCanvas
 from .navtabs import NavTabs
 from .theme import BRAND, MUTED
-from .timeline import FX_MIME, Timeline
-from .workers import ThumbWorker, ExportWorker, GradePreviewWorker, UpdateCheckWorker, UpdateDownloadWorker, WaveformWorker, AsrWorker, WhisperSetupWorker, DiagnoseWorker
+from .timeline import FX_MIME, MEDIA_MIME, Timeline
+from .workers import StabilizeWorker, TrackWorker, FrameWorker, ThumbWorker, ExportWorker, GradePreviewWorker, UpdateCheckWorker, UpdateDownloadWorker, WaveformWorker, AsrWorker, WhisperSetupWorker, DiagnoseWorker
 
 VIDEO_FILTER = ("Videos und Bilder (*.mp4 *.mov *.mkv *.avi *.webm *.m4v *.wmv *.flv *.mts *.m2ts "
                 "*.jpg *.jpeg *.png *.webp *.bmp *.tif *.tiff);;Alle Dateien (*)")
@@ -48,9 +49,45 @@ ASR_LANGS = [("auto", "Automatisch erkennen"), ("de", "Deutsch"), ("en", "Englis
 TEXT_POS = [("top", "Oben"), ("center", "Mitte"), ("bottom", "Unten")]
 
 
+def _rm(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
 def fmt_time(t: float) -> str:
     t = max(0.0, t)
     return f"{int(t // 60)}:{t % 60:04.1f}"
+
+
+class MediaList(QListWidget):
+    """Medienraster: Einträge lassen sich auf die Timeline ziehen (legt sie an der Stelle ein)."""
+
+    def mimeData(self, items):  # noqa: N802
+        md = QMimeData()
+        md.setText(MEDIA_MIME + "\n".join(str(it.data(Qt.ItemDataRole.UserRole)) for it in items))
+        return md
+
+
+class PreviewVideo(QVideoWidget):
+    """Player-Bild: Doppelklick = Vollbild; im Vollbild startet/stoppt Klick oder Leertaste die Wiedergabe (Esc beendet)."""
+    toggle_requested = Signal()
+
+    def mouseDoubleClickEvent(self, ev):  # noqa: N802
+        self.setFullScreen(not self.isFullScreen())
+
+    def mousePressEvent(self, ev):  # noqa: N802
+        if self.isFullScreen():
+            self.toggle_requested.emit()
+        else:
+            super().mousePressEvent(ev)
+
+    def keyPressEvent(self, ev):  # noqa: N802
+        if ev.key() == Qt.Key.Key_Space:
+            self.toggle_requested.emit()
+        else:
+            super().keyPressEvent(ev)
 
 
 class SeekSlider(QSlider):
@@ -127,6 +164,14 @@ class MainWindow(QMainWindow):
         self._live_timer.setSingleShot(True)
         self._live_timer.timeout.connect(self._live_fire)
         self._thumb_workers: list = []
+        self._frame_workers: list = []
+        self._mask_frame_token = 0
+        self._mask_edit_idx = -1
+        self._track_worker = None
+        self._track_target = None
+        self._stab_worker = None
+        self._stab_then: list = []
+        self._stab_fail_state = ""
 
         self._history = History(self.project.to_json())
         self._saved_state = self.project.to_json()
@@ -183,31 +228,8 @@ class MainWindow(QMainWindow):
         top = QSplitter(Qt.Orientation.Horizontal)
         vsplit.addWidget(top)
 
-        # -- oben links: Reiter (Medien, Format, Bild, Effekte …) mit Export-Knopf
-        self.tabs = NavTabs()
-        self.tabs.addTab(self._build_media_tab(), "Medien", "▣")
-        self.tabs.addTab(self._build_format_tab(), "Format", "▭")
-        self.tabs.addTab(self._build_grade_tab(), "Bild", "◐")
-        self.tabs.addTab(self._build_effects_tab(), "Effekte", "✦")
-        self.tabs.addTab(self._build_text_tab(), "Text", "T")
-        self.tabs.addTab(self._build_clip_tab(), "Clip", "✂")
-        self.tabs.addTab(self._build_audio_tab(), "Ton", "♪")
-        self.tabs.addTab(self._build_overlay_tab(), "Bild-in-Bild", "❏")
-        self.tabs.addTab(self._build_subtitle_tab(), "Untertitel", "≣")
-        self.tabs.addTab(self._build_motion_tab(), "Bewegung", "➤")
-        self.btn_export = QPushButton("EXPORT")
-        self.btn_export.setObjectName("primary")
-        self.btn_export.setToolTip("Video exportieren (Strg+E)")
-        self.btn_export.clicked.connect(self.export_video)
-        self.tabs.setCornerWidget(self.btn_export)
-        top.addWidget(self.tabs)
-
-        # -- oben rechts: Vorschau
-        top.addWidget(self._build_preview_panel())
-        top.setStretchFactor(0, 0)
-        top.setStretchFactor(1, 1)
-        top.setSizes([700, 760])
-
+        # Reihenfolge wie früher: Player und Timeline existieren, bevor die Reiter gebaut werden
+        preview_panel = self._build_preview_panel()
         # -- unten: Timeline mit Werkzeugleiste
         bottom = QWidget()
         bv = QVBoxLayout(bottom)
@@ -229,7 +251,35 @@ class MainWindow(QMainWindow):
         self.timeline.fx_selected.connect(self._select_fx)
         self.timeline.fx_edited.connect(self._on_fx_edited)
         self.timeline.effect_dropped.connect(self._on_fx_dropped)
+        self.timeline.media_dropped.connect(self._on_media_dropped)
+        self.timeline.lane_mute_toggled.connect(self._on_lane_mute)
         bv.addWidget(self.timeline, 1)
+
+
+        # -- oben links: Reiter (Medien, Format, Bild, Effekte …) mit Export-Knopf
+        self.tabs = NavTabs()
+        self.tabs.addTab(self._build_media_tab(), "Medien", "▣")
+        self.tabs.addTab(self._build_format_tab(), "Format", "▭")
+        self.tabs.addTab(self._build_grade_tab(), "Bild", "◐")
+        self.tabs.addTab(self._build_effects_tab(), "Effekte", "✦")
+        self.tabs.addTab(self._build_text_tab(), "Text", "T")
+        self.tabs.addTab(self._build_clip_tab(), "Clip", "✂")
+        self.tabs.addTab(self._build_audio_tab(), "Ton", "♪")
+        self.tabs.addTab(self._build_overlay_tab(), "Bild-in-Bild", "❏")
+        self.tabs.addTab(self._build_subtitle_tab(), "Untertitel", "≣")
+        self.tabs.addTab(self._build_motion_tab(), "Bewegung", "➤")
+        self.btn_export = QPushButton("EXPORT")
+        self.btn_export.setObjectName("primary")
+        self.btn_export.setToolTip("Video exportieren (Strg+E)")
+        self.btn_export.clicked.connect(self.export_video)
+        self.tabs.setCornerWidget(self.btn_export)
+        top.addWidget(self.tabs)
+
+        # -- oben rechts: Vorschau
+        top.addWidget(preview_panel)
+        top.setStretchFactor(0, 0)
+        top.setStretchFactor(1, 1)
+        top.setSizes([700, 760])
         vsplit.addWidget(bottom)
         vsplit.setStretchFactor(0, 3)
         vsplit.setStretchFactor(1, 2)
@@ -255,8 +305,12 @@ class MainWindow(QMainWindow):
         self.media_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.media_hint.setStyleSheet(f"color: {MUTED};")
         v.addWidget(self.media_hint)
-        self.media_list = QListWidget()
+        self.media_list = MediaList()
         self.media_list.setObjectName("medialist")
+        self.media_list.setDragEnabled(True)
+        self.media_list.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self.media_list.setDefaultDropAction(Qt.DropAction.CopyAction)
+        self.media_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.media_list.setViewMode(QListView.ViewMode.IconMode)
         self.media_list.setIconSize(QSize(160, 90))
         self.media_list.setGridSize(QSize(176, 134))
@@ -268,7 +322,7 @@ class MainWindow(QMainWindow):
         self.media_list.currentItemChanged.connect(self._on_media_selected)
         v.addWidget(self.media_list, 1)
         b2 = QPushButton("Zur Timeline hinzufügen  ▶")
-        b2.setToolTip("Auch per Doppelklick auf das Vorschaubild")
+        b2.setToolTip("Auch per Doppelklick auf das Vorschaubild – oder das Bild direkt auf die Timeline ziehen")
         b2.clicked.connect(self._add_selected_media)
         v.addWidget(b2)
         return w
@@ -278,10 +332,17 @@ class MainWindow(QMainWindow):
         v = QVBoxLayout(w)
         v.setContentsMargins(4, 0, 0, 0)
         v.setSpacing(4)
-        self.video = QVideoWidget()
+        self.video = PreviewVideo()
+        self.video.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.video.toggle_requested.connect(self.toggle_play)
         self.video.setMinimumSize(360, 200)
         self.video.setStyleSheet("background: black;")
-        v.addWidget(self.video, 1)
+        self.mask_canvas = MaskCanvas()
+        self.mask_canvas.changed.connect(self._on_mask_canvas)
+        self.view_stack = QStackedWidget()          # 0 = Player, 1 = Standbild mit Masken-Rahmen
+        self.view_stack.addWidget(self.video)
+        self.view_stack.addWidget(self.mask_canvas)
+        v.addWidget(self.view_stack, 1)
 
         self.audio = QAudioOutput()
         self.player = QMediaPlayer()
@@ -318,7 +379,11 @@ class MainWindow(QMainWindow):
         b_end.setText("⏭")
         b_end.setToolTip("Zum Ende")
         b_end.clicked.connect(lambda: self._seek_project(max(0.0, self.project.duration - 0.05)))
-        for b in (b_start, self.btn_play, b_end):
+        b_full = QToolButton()
+        b_full.setText("⛶")
+        b_full.setToolTip("Vollbild (auch Doppelklick auf das Bild; Esc beendet)")
+        b_full.clicked.connect(self._fullscreen_preview)
+        for b in (b_start, self.btn_play, b_end, b_full):
             tr.addWidget(b)
         tr.addStretch(1)
         self.live_label = QLabel("")
@@ -411,6 +476,21 @@ class MainWindow(QMainWindow):
         if not self.seek.isSliderDown():
             self.seek.setValue(int(t * 1000))
         self.time_label.setText(fmt_time(t))
+
+    def _fullscreen_preview(self) -> None:
+        if self.view_stack.currentIndex() == 1:             # Masken-Rahmen offen: erst schließen
+            self._mask_edit_off()
+        self.video.setFullScreen(True)
+
+    def _on_media_dropped(self, files: list, idx: int) -> None:
+        for k, f in enumerate(files):
+            self._add_to_timeline(f, at=idx + k)
+
+    def _on_lane_mute(self, lane: int) -> None:
+        cb = self._mix_mutes.get(lane)
+        if cb is not None:
+            cb.setChecked(not cb.isChecked())            # der Schalter im Reiter „Ton“ schreibt ins Projekt
+        self.timeline.update()
 
     def _on_play_state(self, state) -> None:
         playing = state == QMediaPlayer.PlaybackState.PlayingState
@@ -554,6 +634,20 @@ class MainWindow(QMainWindow):
         ml.addRow("Weiche Kante", self.mask_feather)
         self.mask_invert = QCheckBox("Außen statt innen wirken")
         ml.addRow(self.mask_invert)
+        self.btn_mask_edit = QPushButton("Bereich im Vorschaubild festlegen")
+        self.btn_mask_edit.setCheckable(True)
+        self.btn_mask_edit.setToolTip("Zeigt ein Bild an der Stelle des Abspielkopfs: Rahmen verschieben und an den Rändern ziehen")
+        self.btn_mask_edit.toggled.connect(self._mask_edit_toggled)
+        ml.addRow(self.btn_mask_edit)
+        tr_row = QHBoxLayout()
+        self.btn_track = QPushButton("Objekt verfolgen")
+        self.btn_track.setToolTip("Der Bereich wandert über die Länge des Blocks (höchstens 30 s) mit dem Objekt mit, das im Rahmen liegt")
+        self.btn_track.clicked.connect(self._track_start)
+        self.btn_track_clear = QPushButton("Pfad löschen")
+        self.btn_track_clear.clicked.connect(self._track_clear)
+        tr_row.addWidget(self.btn_track, 1)
+        tr_row.addWidget(self.btn_track_clear)
+        ml.addRow(tr_row)
         self.mask_info = QLabel("")
         self.mask_info.setWordWrap(True)
         self.mask_info.setStyleSheet(f"color: {MUTED};")
@@ -1012,6 +1106,16 @@ class MainWindow(QMainWindow):
         self.clip_audio_note.setVisible(False)
         form.addRow(self.clip_audio_note)
         form.addRow(self.clip_rev)
+        self.clip_stab = QSlider(Qt.Orientation.Horizontal)
+        self.clip_stab.setRange(0, 100)
+        self.clip_stab.setToolTip("Verwackelte Aufnahmen beruhigen. Beim ersten Mal wird der Clip analysiert (dauert etwas), "
+                                  "danach ist es gespeichert. Hohe Werte beruhigen stärker und schneiden etwas mehr vom Bildrand ab.")
+        self.clip_stab.valueChanged.connect(self._on_clip_field)
+        self.clip_stab_label = QLabel("aus")
+        sr = QHBoxLayout()
+        sr.addWidget(self.clip_stab, 1)
+        sr.addWidget(self.clip_stab_label)
+        form.addRow("Stabilisieren", sr)
         hint = QLabel("Zeitlupe: Geschwindigkeit unter 1, Zeitraffer: über 1.")
         hint.setStyleSheet(f"color: {MUTED};")
         form.addRow(hint)
@@ -1688,10 +1792,15 @@ class MainWindow(QMainWindow):
 
     def _load_fx_fields(self) -> None:
         ok = 0 <= self.fsel < len(self.project.effects)
+        if self.view_stack.currentIndex() == 1 and self._mask_edit_idx != self.fsel:
+            self._mask_edit_off()                 # anderer Block gewählt → Rahmen-Ansicht schließen
         self.fx_box.setEnabled(ok)
         self.btn_fx_del.setEnabled(ok)
         if not ok:
             self.fx_box.setTitle("Gewählter Effekt-Block (keiner gewählt – in der Timeline anklicken)")
+            self.fx_mask_box.setVisible(False)
+            if self.view_stack.currentIndex() == 1:
+                self._mask_edit_off()
             return
         e = self.project.effects[self.fsel]
         s0, t0 = self.project.fx_span(self.fsel)
@@ -1715,8 +1824,9 @@ class MainWindow(QMainWindow):
             self.mask_h.setValue(m["h"])
             self.mask_feather.setValue(int(m["feather"]))
             self.mask_invert.setChecked(m["invert"])
-            self.mask_info.setText("Der Bereich bleibt an einer Stelle (Mitte in % des Bildes). Mitwandern mit einem Objekt folgt in einer späteren Version."
-                                   if not m["track"] else f"Der Bereich folgt einem Pfad ({len(m['track'])} Punkte).")
+            self._load_mask_info(e)
+        elif self.view_stack.currentIndex() == 1:
+            self._mask_edit_off()
         self._loading = was
 
     def _on_fx_param(self, *_args) -> None:
@@ -1732,6 +1842,9 @@ class MainWindow(QMainWindow):
         self._refresh_timeline_only()
 
     def _on_mask_param(self, *_args) -> None:
+        self._write_mask(clear_track=False)
+
+    def _write_mask(self, clear_track: bool = False) -> None:
         if self._loading or not (0 <= self.fsel < len(self.project.effects)):
             return
         e = self.project.effects[self.fsel]
@@ -1741,8 +1854,141 @@ class MainWindow(QMainWindow):
         old = fx.mask_params(e.get("mask"))
         e["mask"] = {"shape": self.mask_shape.currentData() or "ellipse", "x": self.mask_x.value(), "y": self.mask_y.value(),
                      "w": self.mask_w.value(), "h": self.mask_h.value(), "feather": float(self.mask_feather.value()),
-                     "invert": self.mask_invert.isChecked(), "track": old["track"]}
+                     "invert": self.mask_invert.isChecked(), "track": [] if clear_track else old["track"]}
+        if self.view_stack.currentIndex() == 1:
+            self.mask_canvas.set_mask(fx.mask_params(e["mask"]), e["mask"]["track"])
+        self._load_mask_info(e)
         self._refresh_timeline_only()
+
+    def _load_mask_info(self, e: dict) -> None:
+        tr = fx.mask_params(e.get("mask"))["track"]
+        self.mask_info.setText("Der Bereich bleibt an einer Stelle (Mitte in % des Bildes)." if not tr
+                               else f"Der Bereich folgt einem Pfad ({len(tr)} Punkte). Rahmen verschieben entfernt den Pfad.")
+
+    # -- Tracking
+    def _track_start(self) -> None:
+        if self._track_worker is not None:                      # läuft schon → abbrechen
+            self._track_worker.cancel()
+            return
+        idx = self.fsel
+        if not (0 <= idx < len(self.project.effects)):
+            return
+        e = self.project.effects[idx]
+        eff = fx.REGISTRY.get(e["id"])
+        if not (eff and eff.params):
+            return
+        self._track_target = e
+        w = TrackWorker(copy.deepcopy(self.project), idx, self)
+        self._track_worker = w
+        self.btn_track.setText("Abbrechen")
+        self.mask_info.setText("Verfolgen … 0 %")
+        w.progress.connect(lambda p: self.mask_info.setText(f"Verfolgen … {int(p * 100)} %"))
+        w.done.connect(self._track_done)
+        w.start()
+
+    def _track_done(self, res, err: str) -> None:
+        self._track_worker = None
+        self.btn_track.setText("Objekt verfolgen")
+        e = self._track_target
+        self._track_target = None
+        if err:
+            msg = "Verfolgen abgebrochen." if "Abgebrochen" in err else f"Verfolgen nicht möglich: {err[-160:]}"
+            if "Abgebrochen" not in err:
+                diagnostics.log_error("Tracking fehlgeschlagen: %s", err[-500:])
+            self.statusBar().showMessage(msg)
+            if e is not None and any(x is e for x in self.project.effects):
+                self._load_mask_info(e)
+            return
+        if e is None or not any(x is e for x in self.project.effects):
+            return
+        m = fx.mask_params(e.get("mask"))
+        if res.points:
+            m["x"], m["y"] = res.points[0][1], res.points[0][2]
+        m["track"] = res.points
+        e["mask"] = m
+        self._load_fx_fields()
+        if self.view_stack.currentIndex() == 1:
+            self.mask_canvas.set_mask(m, m["track"])
+        self._refresh_timeline_only()
+        note = f"{res.lost} von {res.frames} Bildern unsicher – Pfad prüfen" if res.lost > res.frames * 0.15 else "Pfad sieht gut aus"
+        self.statusBar().showMessage(f"Verfolgt: {len(res.points)} Punkte über {res.seconds:.1f} s. {note}.")
+
+    def _track_clear(self) -> None:
+        if not (0 <= self.fsel < len(self.project.effects)):
+            return
+        e = self.project.effects[self.fsel]
+        m = fx.mask_params(e.get("mask"))
+        if not m["track"]:
+            return
+        m["track"] = []
+        e["mask"] = m
+        if self.view_stack.currentIndex() == 1:
+            self.mask_canvas.set_mask(m, [])
+        self._load_mask_info(e)
+        self._refresh_timeline_only()
+
+    # -- Rahmen im Vorschaubild
+    def _mask_edit_toggled(self, on: bool) -> None:
+        if not on:
+            self._mask_edit_off()
+            return
+        eff = fx.REGISTRY.get(self.project.effects[self.fsel]["id"]) if 0 <= self.fsel < len(self.project.effects) else None
+        if not (eff and eff.params):
+            self._mask_edit_off()
+            return
+        self._mask_edit_idx = self.fsel
+        s0, t0 = self.project.fx_span(self.fsel)
+        t = min(max(self.timeline.playhead, s0), max(s0, t0 - 0.05))
+        self._mask_frame_token = getattr(self, "_mask_frame_token", 0) + 1
+        token = self._mask_frame_token
+        self.mask_canvas.clear_frame()
+        self.view_stack.setCurrentIndex(1)
+        self.statusBar().showMessage("Bild wird geladen …")
+        tmp = paths.user_dir() / "tmp"
+        tmp.mkdir(parents=True, exist_ok=True)
+        png = str(tmp / f"maskframe_{uuid.uuid4().hex[:8]}.png")
+        w = FrameWorker(copy.deepcopy(self.project), t, min(540, int(self.cmb_prev_q.currentData() or 360) * 3 // 2), png,
+                        str(tmp), self)
+        self._frame_workers.append(w)
+        w.done.connect(lambda p, err, k=token, w=w: self._on_mask_frame(p, err, k, w))
+        w.start()
+
+    def _on_mask_frame(self, png: str, err: str, token: int, worker) -> None:
+        if worker in self._frame_workers:
+            self._frame_workers.remove(worker)
+        if token != self._mask_frame_token or self.view_stack.currentIndex() != 1:
+            _rm(png)
+            return
+        if err or not self.mask_canvas.set_frame(png):
+            _rm(png)
+            diagnostics.log_error("Maskenbild fehlgeschlagen: %s", err[-500:])
+            self.statusBar().showMessage(f"Bild konnte nicht geladen werden: {err[-120:]}")
+            self._mask_edit_off()
+            return
+        _rm(png)
+        if 0 <= self.fsel < len(self.project.effects):
+            m = fx.mask_params(self.project.effects[self.fsel].get("mask"))
+            if m["track"]:                                    # Rahmen dort zeigen, wo der Pfad beginnt
+                m["x"], m["y"] = m["track"][0][1], m["track"][0][2]
+            self.mask_canvas.set_mask(m, m["track"])
+        self.statusBar().showMessage("Rahmen in der Mitte verschieben, an Rändern und Ecken ziehen.")
+
+    def _mask_edit_off(self) -> None:
+        self._mask_frame_token = getattr(self, "_mask_frame_token", 0) + 1
+        self.view_stack.setCurrentIndex(0)
+        was = self.btn_mask_edit.blockSignals(True)
+        self.btn_mask_edit.setChecked(False)
+        self.btn_mask_edit.blockSignals(was)
+
+    def _on_mask_canvas(self, m: dict) -> None:
+        was = self._loading
+        self._loading = True
+        self.mask_x.setValue(float(m["x"]))
+        self.mask_y.setValue(float(m["y"]))
+        self.mask_w.setValue(float(m["w"]))
+        self.mask_h.setValue(float(m["h"]))
+        self._loading = was
+        self._write_mask(clear_track=True)
 
     # --------------------------------------------------------- Text-Handler
     @staticmethod
@@ -1913,7 +2159,7 @@ class MainWindow(QMainWindow):
         if it:
             self._add_to_timeline(it.data(Qt.ItemDataRole.UserRole))
 
-    def _add_to_timeline(self, path: str) -> None:
+    def _add_to_timeline(self, path: str, at: int | None = None) -> None:
         info = self.media.get(path)
         if not info:
             return
@@ -1922,8 +2168,9 @@ class MainWindow(QMainWindow):
                         height=info.height, is_image=True)
         else:
             clip = Clip(path, info.duration, has_audio=info.has_audio, width=info.width, height=info.height)
-        self.project.clips.append(clip)
-        self._refresh_timeline(select=len(self.project.clips) - 1)
+        pos = len(self.project.clips) if at is None else max(0, min(int(at), len(self.project.clips)))
+        self.project.clips.insert(pos, clip)
+        self._refresh_timeline(select=pos)
 
     # ------------------------------------------------------------ Timeline
     def _refresh_timeline(self, select: int | None = None) -> None:
@@ -2022,6 +2269,9 @@ class MainWindow(QMainWindow):
         self.clip_vol.setEnabled(not c.audio_detached)
         self.clip_audio_note.setVisible(c.audio_detached)
         self.clip_rev.setChecked(c.reverse)
+        self.clip_stab.setValue(int(c.stabilize))
+        self.clip_stab.setEnabled(not c.is_image)
+        self.clip_stab_label.setText(f"{int(c.stabilize)} %" if c.stabilize else "aus")
         last = self.sel >= len(self.project.clips) - 1
         self.clip_trans.setCurrentIndex(max(0, self.clip_trans.findData(c.transition)))
         self.clip_trans_dur.setValue(c.transition_dur)
@@ -2034,6 +2284,7 @@ class MainWindow(QMainWindow):
 
     def _on_clip_field(self, *_args) -> None:
         self.clip_vol_label.setText(f"{self.clip_vol.value()} %")
+        self.clip_stab_label.setText(f"{self.clip_stab.value()} %" if self.clip_stab.value() else "aus")
         if self._loading or not (0 <= self.sel < len(self.project.clips)):
             return
         c = self.project.clips[self.sel]
@@ -2043,6 +2294,7 @@ class MainWindow(QMainWindow):
         c.volume = self.clip_vol.value() / 100.0
         c.mute = self.clip_mute.isChecked()
         c.reverse = self.clip_rev.isChecked()
+        c.stabilize = 0 if c.is_image else int(self.clip_stab.value())
         c.transition = str(self.clip_trans.currentData() or "")
         c.transition_dur = self.clip_trans_dur.value()
         self.project.sync_linked()
@@ -2839,6 +3091,8 @@ class MainWindow(QMainWindow):
             self._refresh_timeline(select=dst)
 
     def _seek_project(self, t: float) -> None:
+        if self.view_stack.currentIndex() == 1:
+            self._mask_edit_off()
         cl = self.project.clips
         if not cl:
             return
@@ -2920,6 +3174,8 @@ class MainWindow(QMainWindow):
         self._live_on_position(pos)
 
     def toggle_play(self) -> None:
+        if self.view_stack.currentIndex() == 1:
+            self._mask_edit_off()
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.player.pause()
             self._live_playing = False
@@ -2979,6 +3235,9 @@ class MainWindow(QMainWindow):
     def export_video(self) -> None:
         if not self._check_ready():
             return
+        if self._stab_wait(self.export_video):
+            self.statusBar().showMessage("Stabilisierung wird zuerst analysiert – der Export startet danach.")
+            return
         problems = [(t, missing_chars(t.font, t.text)) for t in self.project.texts]
         problems = [(t, m) for t, m in problems if m]
         if problems:
@@ -3024,6 +3283,8 @@ class MainWindow(QMainWindow):
 
     def render_preview(self) -> None:
         if not self._check_ready():
+            return
+        if self._stab_wait(self.render_preview):
             return
         start = max(0.0, self.timeline.playhead)
         if start >= self.project.duration - 0.5:
@@ -3090,6 +3351,37 @@ class MainWindow(QMainWindow):
     def _live_fire(self) -> None:
         self._live_request()
 
+    # -- Stabilisierung: Analyse im Hintergrund
+    def _stab_wait(self, then=None) -> bool:
+        """True, wenn zuerst analysiert werden muss (`then` läuft danach; ohne `then` wird die Live-Vorschau neu geplant)."""
+        if self._stab_worker is not None:
+            self._stab_then.append(then)
+            return True
+        if self._stab_fail_state == self.project.to_json() or not stabilize.missing(self.project):
+            return False
+        w = StabilizeWorker(copy.deepcopy(self.project), self)
+        self._stab_worker = w
+        self._stab_then = [then]
+        self._set_live_label("⟳ Stabilisierung wird analysiert … 0 %")
+        w.progress.connect(lambda p: self._set_live_label(f"⟳ Stabilisierung wird analysiert … {int(p * 100)} %"))
+        w.done.connect(self._stab_done)
+        w.start()
+        return True
+
+    def _stab_done(self, err: str) -> None:
+        self._stab_worker = None
+        thens, self._stab_then = self._stab_then, []
+        self._set_live_label("")
+        if err:
+            diagnostics.log_error("Stabilisierung fehlgeschlagen: %s", err[-600:])
+            self._stab_fail_state = self.project.to_json()
+            self.statusBar().showMessage(f"Stabilisierung nicht möglich, es wird die einfache Variante genutzt: {err[-120:]}")
+        for t in thens:
+            if t is not None:
+                t()
+        if not any(t is not None for t in thens):
+            self._live_changed()
+
     def _live_valid_for(self, t: float) -> bool:
         """Liegt die Zeit t in der Live-Vorschau, die im Player liegt und zum aktuellen Projekt passt?"""
         return bool(self._live_path and self._cur_path == self._live_path
@@ -3103,6 +3395,8 @@ class MainWindow(QMainWindow):
             return
         if self._worker is not None:                        # Export oder große Vorschau läuft → später
             self._live_timer.start(1500)
+            return
+        if self._stab_wait(None):                           # Stabilisierung erst analysieren
             return
         if self._live_worker is not None:
             if show:                                        # neuere Anfrage ersetzt die laufende
@@ -3474,7 +3768,13 @@ class MainWindow(QMainWindow):
         self._hist_timer.stop()
         self._autosave_timer.stop()
         self._live_timer.stop()
-        for tw in list(self._thumb_workers):
+        if self._track_worker is not None:
+            self._track_worker.cancel()
+            self._track_worker.wait(3000)
+        if self._stab_worker is not None:
+            self._stab_worker.cancel()
+            self._stab_worker.wait(3000)
+        for tw in list(self._thumb_workers) + list(self._frame_workers):
             tw.wait(2000)
         if self._live_worker is not None:
             self._live_worker.cancel()

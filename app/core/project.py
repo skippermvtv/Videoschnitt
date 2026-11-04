@@ -124,6 +124,7 @@ class Clip:
     crop_b: float = 0.0
     keyframes: list = field(default_factory=list)   # Bewegung: [{"t":0..1,"zoom":100..400,"x":-100..100,"y":..,"rot":°}]
     motion_ease: bool = True       # sanfte Übergänge zwischen den Keyframes
+    stabilize: int = 0             # Videostabilisierung 0 (aus) … 100 (stark), siehe core/stabilize.py
 
     def __post_init__(self):
         if not self.out_pt:

@@ -78,6 +78,13 @@ Python 3.12+ und Inno Setup 6 installieren, dann `build.bat` doppelklicken.
 - **● Live**: Änderungen sind nach kurzer Zeit im Player zu sehen. Das Programm rechnet dafür im Hintergrund einen kurzen Abschnitt (Einstellung `live_len`, Standard 6 s) am Abspielkopf in kleiner Auflösung. Während es rechnet, steht neben dem Knopf ein Hinweis.
 - **Masken** (Effekte der Kategorie *Maske*): Form, Mitte, Größe und weiche Kante beim gewählten Effekt-Block.
 
+## Masken, Tracking, Stabilisieren (ab 1.4.1)
+
+- **Bereich festlegen:** Effekt der Kategorie *Maske* auf die FX-Spur legen, Block anklicken, im Reiter *Effekte* „Bereich im Vorschaubild festlegen“. Rahmen in der Mitte verschieben, an Rändern/Ecken ziehen.
+- **Objekt verfolgen:** Rahmen über das Objekt legen, „Objekt verfolgen“ klicken (Block höchstens 30 s). Rahmen später verschieben entfernt den Pfad; „Pfad löschen“ ebenfalls.
+- **Stabilisieren:** Reiter *Clip*, Regler „Stabilisieren“. Die Analyse wird einmal pro Clip-Ausschnitt gerechnet und im Datenordner (`stab`) gespeichert. Braucht ein FFmpeg mit `libvidstab` (im mitgelieferten enthalten), sonst wird `deshake` benutzt.
+- **Timeline:** Medien aus dem Raster hineinziehen; Spurkopf: **M** = Tonspur stumm, **S** = Spur sperren (nur für diese Sitzung); Vollbild-Vorschau per Knopf oder Doppelklick.
+
 ## Effekt-Spur (ab 1.2)
 
 Alle Effekte liegen als Blöcke auf der Spur **FX Effekte** ganz oben in der Timeline – so siehst du auf einen Blick, wann welcher Effekt wirkt.

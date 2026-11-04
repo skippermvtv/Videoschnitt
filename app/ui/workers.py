@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QThread, Signal
 
-from ..core import exporter, grade, thumbs, updater, waveform
+from ..core import exporter, frames, grade, stabilize, thumbs, tracker, updater, waveform
 
 
 class ExportWorker(QThread):
@@ -142,3 +142,62 @@ class ThumbWorker(QThread):
             self.done.emit(self._src, thumbs.make_thumb(self._src, self._dur, self._img), "")
         except Exception as exc:  # noqa: BLE001
             self.done.emit(self._src, "", str(exc))
+
+
+class FrameWorker(QThread):
+    """Ein Bild des Projekts (ohne Effekte) für den Masken-Rahmen."""
+    done = Signal(str, str)  # (PNG-Pfad, Fehler)
+
+    def __init__(self, project, t: float, height: int, png: str, tmp_dir: str, parent=None):
+        super().__init__(parent)
+        self._args = (project, t, height, png, tmp_dir)
+
+    def run(self) -> None:
+        try:
+            frames.frame_at(*self._args)
+            self.done.emit(self._args[3], "")
+        except Exception as exc:  # noqa: BLE001
+            self.done.emit("", str(exc))
+
+
+class TrackWorker(QThread):
+    """Verfolgt den Maskenbereich eines Effekt-Blocks (rechnet auf einer Kopie des Projekts)."""
+    progress = Signal(float)
+    done = Signal(object, str)  # (TrackResult | None, Fehler)
+
+    def __init__(self, project, idx: int, parent=None):
+        super().__init__(parent)
+        self._project, self._idx = project, idx
+        self._cancel = False
+
+    def cancel(self) -> None:
+        self._cancel = True
+
+    def run(self) -> None:
+        try:
+            res = tracker.track_block(self._project, self._idx, should_cancel=lambda: self._cancel,
+                                      on_progress=self.progress.emit)
+            self.done.emit(res, "")
+        except Exception as exc:  # noqa: BLE001
+            self.done.emit(None, str(exc))
+
+
+class StabilizeWorker(QThread):
+    """Analysiert alle Clips, die stabilisiert werden sollen und noch keine Analyse haben."""
+    progress = Signal(float)
+    done = Signal(str)  # leerer String = Erfolg, sonst Fehlermeldung
+
+    def __init__(self, project, parent=None):
+        super().__init__(parent)
+        self._project = project
+        self._cancel = False
+
+    def cancel(self) -> None:
+        self._cancel = True
+
+    def run(self) -> None:
+        try:
+            stabilize.prepare(self._project, lambda: self._cancel, self.progress.emit)
+            self.done.emit("")
+        except Exception as exc:  # noqa: BLE001
+            self.done.emit(str(exc))

@@ -71,6 +71,9 @@ jobs:
           T tests/test_color13_logic.py
           T tests/test_masks.py $env:RUNNER_TEMP
           T tests/test_window.py $env:RUNNER_TEMP
+          T tests/test_mask_edit.py $env:RUNNER_TEMP
+          T tests/test_tracker.py $env:RUNNER_TEMP
+          T tests/test_stabilize.py $env:RUNNER_TEMP
           T tests/test_audio.py $env:RUNNER_TEMP
           T tests/timeline_logic_check.py
           T tests/test_history.py

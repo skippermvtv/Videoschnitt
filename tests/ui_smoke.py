@@ -372,8 +372,90 @@ def main() -> int:
     win.mask_shape.setCurrentIndex(win.mask_shape.findData("rect"))
     mk = win.project.effects[win.fsel]["mask"]
     assert mk["w"] == 44.0 and mk["shape"] == "rect", mk
+    win._on_mask_canvas({"x": 30.0, "y": 40.0, "w": 20.0, "h": 25.0})
+    mk = win.project.effects[win.fsel]["mask"]
+    assert (mk["x"], mk["y"], mk["w"], mk["h"]) == (30.0, 40.0, 20.0, 25.0), mk
+    # Rahmen im Vorschaubild: Bild laden, mit der Maus verschieben
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+    win.show()
+    win.btn_mask_edit.setChecked(True)
+    assert win.view_stack.currentIndex() == 1
+    for _ in range(200):
+        app.processEvents()
+        time.sleep(0.05)
+        if win.mask_canvas.has_frame():
+            break
+    assert win.mask_canvas.has_frame(), "Maskenbild wurde nicht geladen"
+    cv = win.mask_canvas
+    r = cv._img_rect()
+    c0 = QPoint(int(r.x() + 0.30 * r.width()), int(r.y() + 0.40 * r.height()))
+    QTest.mousePress(cv, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, c0)
+    QTest.mouseMove(cv, c0 + QPoint(int(0.10 * r.width()), 0))
+    QTest.mouseRelease(cv, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, c0 + QPoint(int(0.10 * r.width()), 0))
+    mk = win.project.effects[win.fsel]["mask"]
+    assert abs(mk["x"] - 40.0) < 3.0 and abs(mk["y"] - 40.0) < 1.0, mk
+    assert abs(win.mask_x.value() - mk["x"]) < 1e-6
+    win.btn_mask_edit.setChecked(False)
+    assert win.view_stack.currentIndex() == 0
+    # Tracking mit echtem Video: läuft im Hintergrund, Ergebnis landet im Block
+    win.project.fx_set_span(win.fsel, 0.0, 2.5)
+    win._track_start()
+    for _ in range(400):
+        app.processEvents()
+        time.sleep(0.05)
+        if win._track_worker is None:
+            break
+    assert win._track_worker is None, "Tracking läuft zu lange"
+    mk = win.project.effects[win.fsel]["mask"]
+    assert len(mk["track"]) >= 2, ("Tracking ohne Ergebnis", mk, win.statusBar().currentMessage())
+    win._track_clear()
+    assert win.project.effects[win.fsel]["mask"]["track"] == []
     win.add_effect_block("vhs", 0.0)
     assert not win.fx_mask_box.isVisibleTo(win), "Maskenfelder bei normalem Effekt sichtbar"
+
+    # 1.4.1: Stabilisieren-Regler im Reiter „Clip“ + Analyse im Hintergrund
+    from app.core import stabilize as _stab
+    win._select_clip(0)
+    win.clip_stab.setValue(40)
+    assert win.project.clips[0].stabilize == 40 and win.clip_stab_label.text() == "40 %"
+    if _stab.available():
+        win._stab_wait(None)
+        for _ in range(400):
+            app.processEvents()
+            time.sleep(0.05)
+            if win._stab_worker is None:
+                break
+        assert win._stab_worker is None and not _stab.missing(win.project), "Stabilisierungs-Analyse hängt"
+    win.clip_stab.setValue(0)
+    assert win.project.clips[0].stabilize == 0 and win.clip_stab_label.text() == "aus"
+
+    # 1.4.1: Medien aus dem Raster auf die Timeline ziehen, Stumm-Schalter im Spurkopf, Vollbild-Knopf vorhanden
+    from PySide6.QtCore import QPointF as _QPF
+    from PySide6.QtGui import QDropEvent as _QDE
+    from app.ui.timeline import MEDIA_MIME
+    win.tabs.setCurrentIndex(0)
+    item = win.media_list.item(0)
+    md = win.media_list.mimeData([item])
+    assert md.text().startswith(MEDIA_MIME) and md.text().split(":", 1)[1] == item.data(Qt.ItemDataRole.UserRole)
+    n_clips = len(win.project.clips)
+    ev = _QDE(_QPF(win.timeline._x(0.2), win.timeline._lane_y(0) + 10), Qt.DropAction.CopyAction, md,
+              Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    win.timeline.dropEvent(ev)
+    assert len(win.project.clips) == n_clips + 1 and win.sel == 0, (len(win.project.clips), win.sel)
+    mr = win.timeline._header_buttons(3)["mute"]
+    was = win._mix_mutes[3].isChecked()
+    QTest.mouseClick(win.timeline, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                     QPoint(int(mr.left() + 3), int(mr.top() + 3)))
+    assert win._mix_mutes[3].isChecked() != was, "Stumm-Schalter im Spurkopf wirkt nicht"
+    assert win.project.track_mute.get("3", False) == (not was)
+    lr = win.timeline._header_buttons(1)["lock"]
+    QTest.mouseClick(win.timeline, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                     QPoint(int(lr.left() + 3), int(lr.top() + 3)))
+    assert win.timeline.is_locked(1)
+    win.timeline._locked.clear()
+    win.timeline.grab()
+    assert win.video.toggle_requested is not None
 
     # 1.4: neue Oberfläche – Medienraster mit Vorschaubildern, Suche, Suchleiste über die Projektzeit, Zoom, Zeitcode
     from PySide6.QtWidgets import QToolButton

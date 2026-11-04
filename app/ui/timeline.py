@@ -19,15 +19,16 @@ from .theme import ACCENT, MUTED, PANEL
 
 _COLORS = ["#3d5a80", "#5b7f5b", "#80603d", "#6b3d80", "#3d8080", "#80453d"]
 _AUDIO_COLORS = {1: "#2f7d6b", 2: "#7d5ba6", 3: "#a6823d"}
-LANE_LABELS = ["V1", "A1 Ton", "A2 Musik", "A3 frei", "V2 Bild-in-Bild", "FX Effekte"]
+LANE_LABELS = ["V1 Video", "A1 Ton", "A2 Musik", "A3 frei", "V2 PiP", "FX Effekte"]
 LANE_ORDER = [5, 4, 0, 1, 2, 3]    # von oben nach unten
 FX_LANE = 5
 FX_COLOR = "#a63d6b"
 FX_ROW_H = 18.0
 FX_MAX_ROWS = 3
 FX_MIME = "fate-effect:"
+MEDIA_MIME = "fate-media:"
 OV_COLOR = "#b8672f"
-LABEL_W = 66.0
+LABEL_W = 108.0
 RULER_H = 28.0
 V_H = 44.0
 V2_H = 34.0
@@ -51,6 +52,8 @@ class Timeline(QWidget):
     fx_edited = Signal(int)                # Effekt-Block wurde verschoben oder in der Länge geändert
     effect_dropped = Signal(str, float)    # (Effekt-ID, Projektzeit) – aus der Effektliste abgelegt
     seek_requested = Signal(float)         # Projektzeit in Sekunden
+    media_dropped = Signal(list, int)      # (Dateipfade, Einfügeposition) – aus dem Medienraster abgelegt
+    lane_mute_toggled = Signal(int)        # Spur 1…3: Stumm-Schalter im Spurkopf angeklickt
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -58,6 +61,7 @@ class Timeline(QWidget):
         self.setMouseTracking(True)
         self.setAcceptDrops(True)
         self._project = None
+        self._locked: set[int] = set()      # gesperrte Spuren (nur für diese Sitzung)
         self._sel = -1
         self._asel = -1
         self._osel = -1
@@ -136,6 +140,33 @@ class Timeline(QWidget):
     def _t_at(self, x: float) -> float:
         return self._view0 + (x - 12.0 - LABEL_W) / self._avail() * self._span()
 
+    def _header_buttons(self, lane: int) -> dict:
+        """Rechtecke der Schalter im Spurkopf: „M“ (stumm, nur Tonspuren) und „S“ (sperren, alle Spuren)."""
+        y = self._lane_y(lane)
+        h = self._lane_h(lane)
+        top = y + min(4.0, max(0.0, (h - 14.0) / 2))
+        x0 = 12.0 + LABEL_W - 38.0
+        out = {"lock": QRectF(x0 + 18.0, top, 16.0, 14.0)}
+        if lane in (1, 2, 3):
+            out["mute"] = QRectF(x0, top, 16.0, 14.0)
+        return out
+
+    def _header_click(self, x: float, y: float) -> bool:
+        """Klick in den Spurkopf: schaltet Stumm bzw. Sperren um. True, wenn ein Schalter getroffen wurde."""
+        for lane in range(len(LANE_LABELS)):
+            for name, r in self._header_buttons(lane).items():
+                if r.left() <= x <= r.right() and r.top() <= y <= r.top() + r.height():
+                    if name == "lock":
+                        self._locked.symmetric_difference_update({lane})
+                        self.update()
+                    else:
+                        self.lane_mute_toggled.emit(lane)
+                    return True
+        return False
+
+    def is_locked(self, lane: int) -> bool:
+        return lane in self._locked
+
     def _in_content(self, x: float) -> bool:
         return 12.0 + LABEL_W <= x <= 12.0 + LABEL_W + self._avail()
 
@@ -195,13 +226,23 @@ class Timeline(QWidget):
             y = self._lane_y(lane)
             h = self._lane_h(lane)
             p.setPen(QColor(MUTED))
-            p.drawText(QRectF(12, y, LABEL_W - 6, h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, label)
+            p.drawText(QRectF(12, y, LABEL_W - 44, h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, label)
+            for name, r in self._header_buttons(lane).items():
+                on = (lane in self._locked) if name == "lock" else bool(proj.track_mute.get(str(lane), False))
+                p.setPen(QPen(QColor(MUTED), 1))
+                p.setBrush(QColor("#c0392b" if name == "mute" else ACCENT) if on else QColor("#161920"))
+                p.drawRoundedRect(r, 3, 3)
+                p.setPen(QColor("#ffffff" if on else MUTED))
+                p.drawText(r, Qt.AlignmentFlag.AlignCenter, "M" if name == "mute" else "S")
 
         p.setClipRect(QRectF(left, 0, avail, self.height()))
         for lane in range(6):
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor("#161920"))
             p.drawRoundedRect(QRectF(left, self._lane_y(lane), avail, self._lane_h(lane)), 4, 4)
+            if lane in self._locked:                                   # gesperrte Spur: abgedunkelt
+                p.setBrush(QColor(0, 0, 0, 110))
+                p.drawRoundedRect(QRectF(left, self._lane_y(lane), avail, self._lane_h(lane)), 4, 4)
 
         # Zeitlineal
         step = 0.5 if span <= 8 else 1 if span <= 20 else 5 if span <= 100 else 15 if span <= 600 else 60
@@ -386,9 +427,14 @@ class Timeline(QWidget):
             self._drag = {"kind": "scrub"}
             self.seek_requested.emit(max(0.0, min(self._project.duration, self._t_at(pos.x()))))
             return
+        if pos.x() < 12.0 + LABEL_W:
+            self._header_click(pos.x(), pos.y())
+            return
         if not self._in_content(pos.x()):
             return
         fi, fmode = self._hit_fx(pos)
+        if fi >= 0 and FX_LANE in self._locked:
+            return
         if fi >= 0:
             s0, t0 = self._project.fx_span(fi)
             self._fsel, self._osel, self._asel = fi, -1, -1
@@ -397,6 +443,8 @@ class Timeline(QWidget):
             self.update()
             return
         oi, omode = self._hit_overlay(pos)
+        if oi >= 0 and 4 in self._locked:
+            return
         if oi >= 0:
             o = self._project.overlays[oi]
             self._osel, self._asel, self._fsel = oi, -1, -1
@@ -406,6 +454,8 @@ class Timeline(QWidget):
             self.update()
             return
         idx, mode = self._hit_audio(pos)
+        if idx >= 0 and self._project.audio_clips[idx].track in self._locked:
+            return
         if idx >= 0:
             a = self._project.audio_clips[idx]
             self._asel = idx
@@ -417,6 +467,8 @@ class Timeline(QWidget):
             self.update()
             return
         i, mode = self._hit_video(pos)
+        if i >= 0 and 0 in self._locked:
+            return
         if i >= 0:
             c = self._project.clips[i]
             self._sel = i
@@ -623,6 +675,29 @@ class Timeline(QWidget):
             return ""
         return text[len(FX_MIME):] if text.startswith(FX_MIME) else ""
 
+    @staticmethod
+    def _mime_media(mime) -> list:
+        try:
+            text = mime.text() if mime.hasText() else ""
+        except Exception:  # noqa: BLE001
+            return []
+        return [q for q in text[len(MEDIA_MIME):].split("\n") if q] if text.startswith(MEDIA_MIME) else []
+
+    def media_drop_index(self, t: float) -> int:
+        """Einfügeposition in der Clip-Reihenfolge für ein Ablegen bei der Zeit t (vor/nach der Mitte eines Clips)."""
+        if self._project is None:
+            return 0
+        for i, c in enumerate(self._project.clips):
+            if t < self._project.clip_start(i) + c.length / 2:
+                return i
+        return len(self._project.clips)
+
+    def _media_marker(self, idx: int) -> float:
+        cl = self._project.clips if self._project else []
+        if idx >= len(cl):
+            return self._project.duration if self._project else 0.0
+        return self._project.clip_start(idx)
+
     def effect_drop(self, effect_id: str, x: float) -> float | None:
         """Wird ein Effekt an der Stelle x abgelegt? Gibt die Projektzeit zurück oder None (außerhalb der Zeitleiste)."""
         if self._project is None or effect_id not in fxlib.REGISTRY or not self._in_content(x):
@@ -638,12 +713,20 @@ class Timeline(QWidget):
             event.ignore()
 
     def dragEnterEvent(self, event):
-        if self._mime_effect(event.mimeData()):
+        if self._mime_effect(event.mimeData()) or self._mime_media(event.mimeData()):
             event.acceptProposedAction()
         else:
             self._forward_to_window("dragEnterEvent", event)
 
     def dragMoveEvent(self, event):
+        if self._mime_media(event.mimeData()):
+            if self._project is None:
+                event.ignore()
+                return
+            self._drop_t = self._media_marker(self.media_drop_index(self._t_at(event.position().x())))
+            self.update()
+            event.acceptProposedAction()
+            return
         eid = self._mime_effect(event.mimeData())
         if not eid:
             event.acceptProposedAction() if event.mimeData().hasUrls() else event.ignore()
@@ -661,6 +744,14 @@ class Timeline(QWidget):
         self.update()
 
     def dropEvent(self, event):
+        files = self._mime_media(event.mimeData())
+        if files:
+            idx = self.media_drop_index(self._t_at(event.position().x()))
+            self._drop_t = -1.0
+            self.update()
+            event.acceptProposedAction()
+            self.media_dropped.emit(files, idx)
+            return
         eid = self._mime_effect(event.mimeData())
         if not eid:
             self._forward_to_window("dropEvent", event)

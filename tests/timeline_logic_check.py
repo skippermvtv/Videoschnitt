@@ -62,6 +62,7 @@ def init(self, parent=None):
     self.clip_edited, self.clip_reordered, self.seek_requested = Sig(), Sig(), Sig()
     self.overlay_selected, self.overlay_edited = Sig(), Sig()
     self.fx_selected, self.fx_edited, self.effect_dropped = Sig(), Sig(), Sig()
+    self.media_dropped, self.lane_mute_toggled = Sig(), Sig()
 tl.Timeline.__init__ = init
 
 from app.core.project import AudioClip, Clip, OverlayClip, Project
@@ -226,4 +227,33 @@ t._win = Win()
 t.dragEnterEvent(DEv(5, 5, Mime("", urls=True))); t.dropEvent(DEv(5, 5, Mime("", urls=True)))
 assert t._win.got == ["enter", "drop"], t._win.got
 print("OK  Effekt-Spur (FX): verschieben, kürzen, Zeilen, Ablegen")
+# 1.4.1: Medien aus dem Raster ablegen (Einfügeposition) und Spurköpfe (Stumm / Sperren)
+t._win = Win()
+t.set_project(p, 0, -1, -1, 0)
+assert t.media_drop_index(0.5) == 0 and t.media_drop_index(4.0) == 0 and t.media_drop_index(6.0) == 1 and t.media_drop_index(19.0) == 2, \
+    [t.media_drop_index(x) for x in (0.5, 4.0, 6.0, 19.0)]
+assert t._mime_media(Mime(tl.MEDIA_MIME + "a.mp4\nb.png")) == ["a.mp4", "b.png"] and t._mime_media(Mime("nix")) == []
+e = DEv(t._x(12.0), yf, Mime(tl.MEDIA_MIME + "a.mp4\nb.png")); t.dragEnterEvent(e); assert e.acc is True
+e = DEv(t._x(12.0), yf, Mime(tl.MEDIA_MIME + "a.mp4\nb.png")); t.dragMoveEvent(e); assert e.acc is True and t._drop_t == p.clip_start(1)
+e = DEv(t._x(12.0), yf, Mime(tl.MEDIA_MIME + "a.mp4\nb.png")); t.dropEvent(e)
+assert t.media_dropped.calls[-1] == (["a.mp4", "b.png"], 1), t.media_dropped.calls
+assert t._drop_t == -1.0
+p.audio_clips = [a]                            # der FX-Teil oben hat die Tonblöcke geleert
+t.set_project(p, 0, -1, -1, 0)
+TR = a.track                                   # der Tonblock liegt nach den Tests oben evtl. auf einer anderen Spur
+hb = t._header_buttons(TR)
+assert set(hb) == {"mute", "lock"} and set(t._header_buttons(0)) == {"lock"} and set(t._header_buttons(5)) == {"lock"}
+mx, my = hb["mute"].left() + 3, hb["mute"].top() + 3
+t.mousePressEvent(Ev(mx, my)); assert t.lane_mute_toggled.calls[-1] == (TR,), t.lane_mute_toggled.calls
+n_sel = len(t.audio_selected.calls)
+lx, ly = hb["lock"].left() + 3, hb["lock"].top() + 3
+t.mousePressEvent(Ev(lx, ly)); assert t.is_locked(TR)
+rects()
+t.mousePressEvent(Ev(t._x(a.start) + 30, t._lane_y(TR) + 10))
+assert len(t.audio_selected.calls) == n_sel, "gesperrte Spur darf nichts auswählen"
+t.mousePressEvent(Ev(lx, ly)); assert not t.is_locked(TR)
+t.mousePressEvent(Ev(t._x(a.start) + 30, t._lane_y(TR) + 10))
+assert len(t.audio_selected.calls) == n_sel + 1, "entsperrt wählt wieder aus"
+t.mousePressEvent(Ev(t._lane_y(0), t._lane_y(0) + 5))      # Klick im Kopf ohne Schalter: nichts passiert
+print("OK  Medien ablegen, Spurköpfe")
 print("Timeline-Mauslogik OK")

@@ -283,6 +283,13 @@ def _drawtext(layer: TextLayer, idx: int, W: int, H: int, tmpdir: Path) -> list[
     return out
 
 
+def _stabilize_filter(c) -> str:
+    if not getattr(c, "stabilize", 0) or c.is_image:
+        return ""
+    from . import stabilize                              # erst hier laden (stabilize importiert den Exporter)
+    return stabilize.filter_for(c)
+
+
 def build_command(project: Project, out_path: str, *, draft: bool = False,
                   max_seconds: float | None = None, start: float = 0.0, preview_height: int | None = None,
                   use_hw: bool = False) -> tuple[list[str], float, Path]:
@@ -324,6 +331,9 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
         else:
             cmd += ["-ss", f"{c.in_pt:.3f}", "-t", f"{span:.3f}", "-i", c.path]
         v = f"[{i}:v]"
+        stab = _stabilize_filter(c)                      # vor „rückwärts“, damit die Bildfolge zur Analyse passt
+        if stab:
+            v += stab + ","
         if c.reverse and not c.is_image:
             v += "reverse,"
         v += f"setpts=(PTS-STARTPTS)/{sp:.4f},fps={fps}[c{i}r]"
