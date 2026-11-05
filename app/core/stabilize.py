@@ -2,7 +2,8 @@
 
 Durchgang 1 (Analyse) schreibt die Kamerabewegung einer Quellstrecke in eine .trf-Datei; sie wird zwischengespeichert.
 Durchgang 2 (vidstabtransform) steht dann in der Filterkette des Clips. Für Ausschnitte (Live-Vorschau) wird aus einer
-vorhandenen Analyse der passende Teil herausgeschnitten, statt neu zu rechnen.
+vorhandenen Analyse der passende Teil herausgeschnitten, statt neu zu rechnen. Das geht nur, wenn libvidstab die Datei als
+Text schreibt (ältere Versionen). Neuere schreiben ein Binärformat („TRF1“); dann wird der Ausschnitt einzeln analysiert.
 
 Hinweis Windows: libvidstab öffnet Dateien ohne UTF-8-Unterstützung. Darum liegen die .trf-Dateien in einem Ordner,
 dessen Pfad nur aus ASCII-Zeichen besteht (sonst unter C:\\Users\\Public).
@@ -202,7 +203,10 @@ def filter_for(clip) -> str:
     trf = lookup(clip.path, clip.in_pt, clip.out_pt) if available() else None
     if trf is not None:
         smooth, zoom = strength_params(stab)
-        return f"vidstabtransform=input={esc_path(str(trf))}:smoothing={smooth}:zoom={zoom}:optzoom=0:interpol=bicubic"
+        # optalgo=gauss: gleichmäßige Glättung wie bisher. Neuere libvidstab-Versionen nehmen sonst eine Pfad-Optimierung,
+        # die ein Zoom-Budget braucht und mit festem Zoom viel zu schwach ausgleicht.
+        return (f"vidstabtransform=input={esc_path(str(trf))}:smoothing={smooth}:optalgo=gauss:zoom={zoom}"
+                ":optzoom=0:interpol=bicubic")
     rx = max(16, min(64, 16 * int(round((8 + stab * 0.32) / 16))))     # deshake: Suchbereich, nur Vielfache von 16 erlaubt
     return f"deshake=rx={rx}:ry={rx}:edge=mirror"
 

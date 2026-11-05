@@ -118,14 +118,22 @@ check(good < base * 0.45, f"Stabilisierung wirkt zu schwach: {base:.2f} -> {good
 check(stabilize.prepare(p) == 0, "zweite Analyse darf nicht nötig sein (Zwischenspeicher)")
 print(f"OK  vidstab: {base:.2f} -> {good:.2f}")
 
-# Ausschnitt (wie die Live-Vorschau): kommt aus der vorhandenen Analyse, ohne neu zu rechnen
+# Ausschnitt (wie die Live-Vorschau): bei Text-trf aus der vorhandenen Analyse geschnitten, bei Binär-trf einzeln analysiert
+full_trf = stabilize.lookup(str(shaky), 0.0, info.duration)
+text_trf = open(full_trf, "rb").read(8).startswith(b"VID.STAB")
+print("Analysedatei:", "Text (kann zerschnitten werden)" if text_trf else "Binär (Ausschnitte werden einzeln analysiert)")
 before = len(stabilize._load_index())
 q = make_project(60)
 q.clips[0].in_pt, q.clips[0].out_pt = 1.0, 3.0
-check(not stabilize.missing(q), "Ausschnitt muss aus der Analyse kommen")
+if text_trf:
+    check(not stabilize.missing(q), "Ausschnitt muss aus der Analyse kommen")
+    check(stabilize.prepare(q) == 0, "kein neuer Durchlauf")
+else:
+    check(len(stabilize.missing(q)) == 1, "Binär-trf lässt sich nicht zerschneiden: Ausschnitt braucht eine eigene Analyse")
+    check(stabilize.prepare(q) == 1 and not stabilize.missing(q), "Ausschnitt analysieren")
 part = jitter(render(q, "part"))
 check(part < base * 0.6, f"Ausschnitt wirkt zu schwach: {base:.2f} -> {part:.2f}")
-check(len(stabilize._load_index()) == before, "Index darf durch Ausschnitt nicht wachsen")
+check(len(stabilize._load_index()) == before + (0 if text_trf else 1), "Index")
 check(stabilize.lookup(str(shaky), 1.0, 3.0) is not None, "Ausschnitt wiederfindbar")
 print(f"OK  Ausschnitt: {base:.2f} -> {part:.2f}")
 
