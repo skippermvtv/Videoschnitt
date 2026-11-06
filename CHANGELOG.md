@@ -1,5 +1,27 @@
 # Änderungen
 
+## 1.4.3
+- **Neustart nach dem Update**: Nach „Jetzt installieren“ startet das Programm von selbst wieder (Inno-Setup-Eintrag für den stillen Modus). Vorher fragt das Programm, ob ungespeicherte Änderungen gesichert werden sollen. Das Installationsprotokoll liegt in `%TEMP%\FATE-VIDEOSCHNITT-Update.log`. Ob der Neustart klappt, zeigt sich erst beim ersten echten Update (1.4.2 → 1.4.3) auf Windows.
+- **Lautheit angleichen** (Reiter „Ton“): Ziel wählbar (−14 LUFS YouTube/TikTok, −16, −23 Sendenorm). Gemessen mit echtem Export; der Ein-Durchgang-Filter landet etwa 1 LU über dem Ziel (Toleranz im Test 1,5 LU).
+- **Musik-Ducking** (Musik wird bei Sprache leiser): Zuordnung der Stärke zum Verhältnis neu abgestimmt und gemessen. Ton von Bild-in-Bild-Videos zählt dabei zur Sprache.
+- **Ton von Bild-in-Bild**: Schalter „Ton mischen“ und Lautstärke (0–200 %) im Reiter „Bild-in-Bild“.
+- **Mehrere Formate auf einmal exportieren** (Datei → „Mehrere Formate exportieren …“, Strg+Umschalt+E): z. B. YouTube 16:9, Shorts und Quadrat nacheinander in einen Ordner.
+- **Split Screen**: Abstand und Trennlinie (Farbe) zwischen den Feldern, Bildausschnitt pro Feld (Zoom und Verschiebung), und das Hauptvideo kann selbst in ein Feld (erstes oder letztes) rücken, solange der Split läuft.
+- **Pipette** für Greenscreen: „Pipette …“ zeigt ein Standbild, ein Klick wählt die Schlüsselfarbe (Mittelwert um den Klickpunkt).
+- **Geschwindigkeitskurve zeichnen**: Grafik im Reiter „Clip“ (Tempo senkrecht auf logarithmischer Achse ×0,1 … ×8). Punkte ziehen, Doppelklick = neuer Punkt, Rechtsklick = Punkt entfernen; das Textfeld und die Vorlagen bleiben in Sync.
+- **Fehler behoben (Ton in der Geschwindigkeitskurve):** Bei langsamem Tempo liefert FFmpegs `atempo` bis ca. 50 ms zu wenig Ton; `concat` füllte die Lücke mit Stille, an den Abschnittsgrenzen gab es hörbare Aussetzer (gemessen bis 44 ms). Jetzt wird etwas mehr Ton gelesen und exakt auf die Bildlänge gekürzt. Ein leichtes Knacken durch den Phasensprung an den Grenzen bleibt möglich.
+- Neue Tests: `test_loudness.py`, `test_overlay_audio.py`, `test_multiexport.py`, `test_colorpick.py`, `test_ramp_audio.py`, `test_rampgraph.py`; erweiterte Split-, Release-, Signal- und Oberflächenprüfungen.
+
+## 1.4.2
+- **Reiter „Titel“**: 11 Vorlagen (Großer Titel, Titel mit Kasten, Bauchbinde, Untertitelband, Zitat, Kapitel, Schreibmaschine, Ausruf, Abonnieren, Abspann, Metal). Doppelklick legt den Titel am Abspielkopf an, oder die Vorlage auf die Timeline ziehen. Danach lässt er sich im Reiter „Text“ wie jeder Text ändern. Vorlagen stehen in `presets/titles.json` und lassen sich im Presets-Ordner ergänzen.
+- **Reiter „Übergänge“**: Raster mit Vorschaubildern (echte kurze Überblendung zwischen zwei Testbildern, zwischengespeichert). Doppelklick = Übergang nach dem gewählten Clip, auf eine Schnittstelle ziehen, „Auf alle Clips“, „Entfernen“, Dauer einstellbar. Die Reiterleiste scrollt jetzt, wenn sie breiter als das Fenster ist.
+- **Split Screen** (Reiter „Split“): 2 nebeneinander, 2 übereinander, 1 groß + 2 klein, 3 nebeneinander, 4er-Raster. Der gewählte Bild-in-Bild-Block und die gleichzeitig laufenden bekommen je ein Feld; jedes Video füllt sein Feld aus. „Gewählte Medien als Split einfügen“ legt markierte Medien gleich ins Layout. Felder schließen lückenlos aneinander an (Pixeltest in 3 Bildgrößen).
+- **Geschwindigkeitskurve** (Reiter „Clip“): Vorlagen (Zeitlupe in der Mitte, Immer schneller, Abbremsen, Heldenmoment, Pulsieren, Blitzstart) oder eigene Punkte („Position in %:Tempo“). Der Clip wird in bis zu 20 Abschnitte mit gleichbleibender Geschwindigkeit geteilt; Timeline, Übergänge, Live-Vorschau und Ton laufen dadurch unverändert mit. Nicht für Standbilder und rückwärts abgespielte Clips. Rückgängig mit Strg+Z.
+- **Ton verbessern** (Reiter „Clip“ und „Ton“): „Rauschen entfernen“ (afftdn) und „Sprache klarer“ (Tiefen abschneiden, 3 kHz anheben), je 0–100. afftdn wirkt nur, wenn man ihm den ungefähren Rauschpegel nennt; der wird deshalb pro Datei gemessen (leiseste 10 % kurzer Stücke) und zwischengespeichert.
+- **Einstellungen merken**: Spursperren, Timeline-Zoom, Fensteraufteilung und der zuletzt benutzte Reiter werden beim Beenden gespeichert und beim Start wiederhergestellt (kaputte Werte werden verworfen).
+- **Fehler behoben (Export):** Bei vielen Schnitten wurde das Video mit jedem Schnitt etwas länger als der Ton (jeder Clip rundete auf ganze Quellbilder auf; bei 19 Abschnitten +0,4 s, Bild und Ton liefen auseinander). Die Bildanzahl je Clip wird jetzt laufend gerundet.
+- Neue Tests: `test_titles.py`, `test_settings_ui.py`, `test_audiofix.py` (verrauschter Ton, gemessen), `test_split.py` (Pixeltest), `test_speedramp.py` (Helligkeit = Quellzeit, Länge, Ton); erweiterte Signal-, Timeline- und Oberflächenprüfungen.
+
 ## 1.4.1
 - **Masken direkt im Vorschaubild**: Im Reiter „Effekte“ zeigt „Bereich im Vorschaubild festlegen“ ein Bild an der Stelle des Abspielkopfs (ohne Effekte). Den Rahmen in der Mitte verschieben, an Rändern und Ecken in der Größe ziehen; die Zahlenfelder folgen mit.
 - **Tracking**: „Objekt verfolgen“ lässt den Maskenbereich über die Länge des Blocks (höchstens 30 s) mit einem Objekt mitwandern (Mustersuche per Kreuzkorrelation auf kleinen Graustufenbildern, Pfad geglättet und auf höchstens 40 Punkte vereinfacht). Das Programm enthält dafür jetzt numpy.

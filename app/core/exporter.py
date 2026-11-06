@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable
 
 from ..paths import find_binary, resolve_font
-from . import audiomix, grade, presets
+from . import audiofix, audiomix, grade, presets, split
 from .effects import Ctx, build_graph
 from .project import Clip, Project, TextLayer, overlap
 
@@ -100,6 +100,9 @@ def chromakey_filters(o) -> str:
 def _esc_path(p: str) -> str:
     """Pfad für FFmpeg-Filteroptionen (Windows: C:\\x → C\\:/x)."""
     return p.replace("\\", "/").replace(":", "\\:").replace("'", r"\'")
+
+
+AUDIO_MARGIN = 0.15      # Sekunden Ton-Zugabe hinter dem Clip, wenn atempo benutzt wird (siehe unten)
 
 
 def _atempo_chain(speed: float) -> str:
@@ -320,23 +323,36 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
     graph: list[str] = []
     concat_in = []
 
+    # Bildanzahl je Clip: laufend gerundet, damit Bild und Ton auch bei vielen Schnitten (z. B. Tempo-Kurve) im Gleichklang bleiben.
+    # Sonst rundet jeder Clip auf ganze Quellbilder auf und das Video wird mit jedem Schnitt etwas länger als der Ton.
+    frame_n: list[int] = []
+    _acc, _prev = 0.0, 0
+    for c in project.clips:
+        _acc += max(0.05, c.out_pt - c.in_pt) / max(0.1, min(c.speed, 20.0))
+        _cur = max(_prev + 1, round(_acc * fps))
+        frame_n.append(_cur - _prev)
+        _prev = _cur
+
     for i, c in enumerate(project.clips):
         span = max(0.05, c.out_pt - c.in_pt)
         if c.reverse and not c.is_image and span > MAX_REVERSE_SECONDS:
             raise ExportError(f"„{c.name}“: Rückwärts abspielen geht nur für Clips bis {int(MAX_REVERSE_SECONDS)} Sekunden "
                               "(der ganze Clip müsste im Speicher liegen). Kürze den Clip oder schalte „Rückwärts“ aus.")
         sp = max(0.1, min(c.speed, 20.0))
+        tempo_audio = False
         if c.is_image:                      # Standbild: als Endlosschleife einlesen
             cmd += ["-loop", "1", "-framerate", str(fps), "-t", f"{span:.3f}", "-i", c.path]
         else:
-            cmd += ["-ss", f"{c.in_pt:.3f}", "-t", f"{span:.3f}", "-i", c.path]
+            tempo_audio = (c.has_audio and not c.mute and not c.audio_detached and not c.reverse
+                           and abs(sp - 1.0) > 1e-3)
+            cmd += ["-ss", f"{c.in_pt:.3f}", "-t", f"{span + (AUDIO_MARGIN if tempo_audio else 0.0):.3f}", "-i", c.path]
         v = f"[{i}:v]"
         stab = _stabilize_filter(c)                      # vor „rückwärts“, damit die Bildfolge zur Analyse passt
         if stab:
             v += stab + ","
         if c.reverse and not c.is_image:
             v += "reverse,"
-        v += f"setpts=(PTS-STARTPTS)/{sp:.4f},fps={fps}[c{i}r]"
+        v += f"setpts=(PTS-STARTPTS)/{sp:.4f},fps={fps},tpad=stop_mode=clone:stop=3,trim=end_frame={frame_n[i]}[c{i}r]"
         graph.append(v)
         graph.append(f"[c{i}r]{_transform_chain(c) or 'null'}[c{i}s]")
         graph.append(_layout_chain(i, W, H, layout))
@@ -350,12 +366,22 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
         out_len = span / sp
         if c.has_audio and not c.mute and not c.audio_detached and not c.is_image:
             a = f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo"
+            fix = audiofix.chain(c.denoise, c.voice, audiofix.noise_floor(c.path, c.in_pt, c.out_pt) if c.denoise > 0 else None)
+            if fix:
+                a += "," + fix
             if c.reverse:
                 a += ",areverse"
             if abs(sp - 1.0) > 1e-3:
                 a += "," + _atempo_chain(sp)
             if abs(c.volume - 1.0) > 1e-3:
                 a += f",volume={c.volume:.3f}"
+            if tempo_audio:
+                # atempo liefert bei langsamem Tempo bis zu ~50 ms zu wenig Ton (Aussetzer an den Schnitten, z. B. in der
+                # Tempokurve). Deshalb wird etwas mehr Ton eingelesen und exakt auf die Clip-Länge gekürzt; reicht die
+                # Aufnahme nicht weiter, füllt apad den Rest.
+                # Länge = Bildanzahl/fps: ist der Ton kürzer als das Bild, füllt concat die Lücke mit Stille (hörbarer Aussetzer).
+                seg = frame_n[i] / fps
+                a += f",atrim=duration={seg:.5f},apad=whole_dur={seg:.5f}"
             a += f",asetpts=PTS-STARTPTS[a{i}]"
         else:
             a = (f"anullsrc=r=48000:cl=stereo,atrim=duration={out_len:.3f},"
@@ -400,6 +426,22 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
 
     cur = "vfx"
     n_ov = 0
+    mc = split.main_cell_px(project, total, W, H)
+    if mc:      # Split Screen: Hauptvideo füllt ein Feld, solange das Split läuft (sonst wieder das ganze Bild)
+        mx, my, mw, mh, mt0, mt1 = mc
+        graph += [f"[{cur}]split=2[mA][mB]",
+                  f"[mB]scale={mw}:{mh}:force_original_aspect_ratio=increase,crop={mw}:{mh},setsar=1,format=rgba[mC]",
+                  f"color=c=black:s={W}x{H}:r={fps}:d={total + 1:.3f},format=rgba[mD]",
+                  f"[mD][mC]overlay=x={mx}:y={my}:eof_action=repeat[mE]",
+                  f"[mA][mE]overlay=eof_action=repeat:enable='between(t,{mt0:.3f},{mt1:.3f})'[mF]"]
+        cur = "mF"
+        for o in project.overlays:                         # Linie um das Hauptfeld (einmal, aus den Angaben des ersten Blocks)
+            if split.is_split(o) and split.line_px(o, W) and split.valid_cell(o.main_cell):
+                th = min(split.line_px(o, W), mw // 2, mh // 2)
+                graph.append(f"[{cur}]drawbox=x={mx}:y={my}:w={mw}:h={mh}:color={split.line_color(o)}:t={th}:"
+                             f"enable='between(t,{mt0:.3f},{mt1:.3f})'[mG]")
+                cur = "mG"
+                break
     for oj, o in enumerate(project.overlays):
         if o.start >= total - 0.05:
             continue
@@ -411,12 +453,19 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
             cmd += ["-loop", "1", "-framerate", str(fps), "-t", f"{oseg:.3f}", "-i", o.path]
         else:
             cmd += ["-ss", f"{o.in_pt:.3f}", "-t", f"{oseg:.3f}", "-i", o.path]
+        cell = split.cell_px(o, W, H)
         ow = max(16, int(W * max(1.0, min(o.size_pct, 100.0)) / 100.0) // 2 * 2)
-        ch = f"[{k}:v]setpts=(PTS-STARTPTS)/{osp:.4f},fps={fps},scale={ow}:-2,format=rgba"
+        if cell:                         # Split Screen: Bild füllt das Feld aus (überstehende Ränder werden abgeschnitten)
+            sw, sh, dx, dy = split.crop_params(o, cell[2], cell[3])
+            ch = (f"[{k}:v]setpts=(PTS-STARTPTS)/{osp:.4f},fps={fps},scale={sw}:{sh}:force_original_aspect_ratio=increase,"
+                  f"crop={cell[2]}:{cell[3]}:x='(iw-{cell[2]})*(0.5+{dx / 200.0:.5f})':y='(ih-{cell[3]})*(0.5+{dy / 200.0:.5f})',"
+                  "setsar=1,format=rgba")
+        else:
+            ch = f"[{k}:v]setpts=(PTS-STARTPTS)/{osp:.4f},fps={fps},scale={ow}:-2,format=rgba"
         key = chromakey_filters(o)
         if key:
             ch += "," + key + ",format=rgba"
-        if o.border:
+        if o.border and not cell:
             b = max(2, ow // 80)
             ch += f",pad=iw+{2 * b}:ih+{2 * b}:{b}:{b}:white"
         if o.opacity < 99.5:
@@ -429,9 +478,15 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
         ch += f",setpts=PTS+{o.start:.3f}/TB[ov{oj}]"
         nxt = f"vo{oj}"
         graph.append(ch)
-        graph.append(f"[{cur}][ov{oj}]overlay=x='W*{o.x_pct:.2f}/100-w/2':y='H*{o.y_pct:.2f}/100-h/2':"
+        pos = f"x={cell[0]}:y={cell[1]}" if cell else f"x='W*{o.x_pct:.2f}/100-w/2':y='H*{o.y_pct:.2f}/100-h/2'"
+        graph.append(f"[{cur}][ov{oj}]overlay={pos}:"
                      f"eof_action=pass:enable='between(t,{o.start:.3f},{o.start + olen:.3f})'[{nxt}]")
         cur = nxt
+        if cell and split.line_px(o, W):               # Split: Trennlinie als Rahmen um das Feld
+            th = min(split.line_px(o, W), cell[2] // 2, cell[3] // 2)
+            graph.append(f"[{cur}]drawbox=x={cell[0]}:y={cell[1]}:w={cell[2]}:h={cell[3]}:color={split.line_color(o)}:t={th}:"
+                         f"enable='between(t,{o.start:.3f},{o.start + olen:.3f})'[vl{oj}]")
+            cur = f"vl{oj}"
         n_ov += 1
     from . import subtitles as _subs
     layers = list(project.texts) + _subs.cue_layers(project.subtitles, project.sub_style, limit=total)

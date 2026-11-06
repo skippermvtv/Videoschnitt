@@ -125,6 +125,8 @@ class Clip:
     keyframes: list = field(default_factory=list)   # Bewegung: [{"t":0..1,"zoom":100..400,"x":-100..100,"y":..,"rot":°}]
     motion_ease: bool = True       # sanfte Übergänge zwischen den Keyframes
     stabilize: int = 0             # Videostabilisierung 0 (aus) … 100 (stark), siehe core/stabilize.py
+    denoise: int = 0               # Rauschen entfernen 0 … 100, siehe core/audiofix.py
+    voice: int = 0                 # Sprache klarer 0 … 100
 
     def __post_init__(self):
         if not self.out_pt:
@@ -172,6 +174,8 @@ class AudioClip:
     link: str = ""             # uid des Videoclips bei kind="video"
     link_offset: float = 0.0   # Abstand zum Anfang des verknüpften Clips
     name: str = ""
+    denoise: int = 0           # Rauschen entfernen 0 … 100
+    voice: int = 0             # Sprache klarer 0 … 100
 
     def __post_init__(self):
         if not self.out_pt:
@@ -207,6 +211,15 @@ class OverlayClip:
     key_similarity: float = 30.0   # Toleranz 0 … 100
     key_blend: float = 20.0        # weiche Kante 0 … 100
     key_spill: bool = True         # Farbsaum der Schlüsselfarbe entfernen
+    cell: list = field(default_factory=list)   # Split Screen: Feld [x, y, Breite, Höhe] in % – leer = normales Bild-in-Bild
+    cell_gap: float = 0.0          # Split: Trennlinie zwischen den Feldern in % der Bildbreite (0 = keine)
+    cell_line: str = "#000000"     # Split: Farbe der Trennlinie
+    cell_zoom: float = 100.0       # Split: Vergrößerung des Bildes im Feld in % (100 = Feld gerade gefüllt)
+    cell_dx: float = 0.0           # Split: Bildausschnitt verschieben, −100 … 100 (0 = mittig)
+    cell_dy: float = 0.0
+    main_cell: list = field(default_factory=list)   # Split: Feld, in dem das Hauptvideo läuft (leer = keins)
+    sound: bool = False            # Ton des Videos mitspielen (zählt zur Sprach-Gruppe, Musik-Ducking reagiert darauf)
+    volume: float = 100.0          # Lautstärke dieses Tons in %
 
     def __post_init__(self):
         if not self.out_pt:
@@ -280,7 +293,8 @@ class Project:
     track_mute: dict = field(default_factory=dict)     # {"2": True}
     ducking: bool = False          # Musik leiser, solange Ton (Video/A1) spricht
     ducking_amount: float = 0.6    # 0 … 1
-    normalize: bool = False        # Lautheit auf -14 LUFS (YouTube/TikTok-Niveau)
+    normalize: bool = False        # Lautheit angleichen (siehe lufs_target)
+    lufs_target: float = -14.0     # Ziel der Angleichung: −14 (YouTube/TikTok/Shorts), −16 (Podcast), −23 (Fernsehen, EBU R128)
 
     def overlap_after(self, i: int) -> float:
         nxt = self.clips[i + 1].length if i + 1 < len(self.clips) else None
@@ -372,7 +386,7 @@ class Project:
         a = AudioClip(path=c.path, duration=c.duration, in_pt=c.in_pt, out_pt=c.out_pt,
                       start=self.clip_start(index), track=1, volume=0.0 if c.mute else c.volume,
                       speed=c.speed, mute=c.mute, reverse=c.reverse, kind="video", link=c.uid,
-                      link_offset=0.0, name=f"Ton: {c.name}")
+                      link_offset=0.0, name=f"Ton: {c.name}", denoise=c.denoise, voice=c.voice)
         c.audio_detached = True
         self.audio_clips.append(a)
         return a
@@ -380,6 +394,9 @@ class Project:
     def reattach_audio(self, index: int) -> bool:
         c = self.clips[index]
         before = len(self.audio_clips)
+        for a in self.audio_clips:                       # Tonverbesserung wandert mit zurück zum Clip
+            if a.kind == "video" and a.link == c.uid:
+                c.denoise, c.voice = a.denoise, a.voice
         self.audio_clips = [a for a in self.audio_clips if not (a.kind == "video" and a.link == c.uid)]
         c.audio_detached = False
         return len(self.audio_clips) != before
@@ -407,7 +424,7 @@ class Project:
         d = json.loads(text)
         p = cls(**{k: v for k, v in d.items() if k in (
             "format_id", "export_id", "layout", "look_id", "effects", "fade_in", "fade_out",
-            "track_volume", "track_mute", "ducking", "ducking_amount", "normalize")})
+            "track_volume", "track_mute", "ducking", "ducking_amount", "normalize", "lufs_target")})
         clip_fields = set(Clip.__dataclass_fields__)
         audio_fields = set(AudioClip.__dataclass_fields__)
         text_fields = set(TextLayer.__dataclass_fields__)

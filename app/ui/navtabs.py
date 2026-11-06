@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
-from PySide6.QtWidgets import QAbstractButton, QHBoxLayout, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QAbstractButton, QFrame, QHBoxLayout, QScrollArea, QStackedWidget, QToolButton,
+                               QVBoxLayout, QWidget)
 
 from .theme import ACCENT, LINE, MUTED, TEXT
 
@@ -47,6 +48,16 @@ class NavButton(QAbstractButton):
         p.end()
 
 
+class _BarScroll(QScrollArea):
+    """Seitlich verschiebbare Leiste ohne sichtbare Rollbalken (Mausrad schiebt)."""
+
+    def wheelEvent(self, ev):  # noqa: N802
+        d = ev.angleDelta().y() or ev.angleDelta().x()
+        bar = self.horizontalScrollBar()
+        bar.setValue(bar.value() - int(d / 120.0 * 90))
+        ev.accept()
+
+
 class NavTabs(QWidget):
     currentChanged = Signal(int)
 
@@ -64,14 +75,40 @@ class NavTabs(QWidget):
         self._bar_lay.setContentsMargins(6, 0, 6, 0)
         self._bar_lay.setSpacing(2)
         self._bar_lay.addStretch(1)
+        self._scroll = _BarScroll()
+        self._scroll.setWidget(self._bar)
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setFixedHeight(58)
+        self._scroll.setMinimumWidth(120)
+        self._left = QToolButton()
+        self._left.setText("‹")
+        self._left.setAutoRaise(True)
+        self._left.clicked.connect(lambda: self.scroll_by(-160))
+        self._right = QToolButton()
+        self._right.setText("›")
+        self._right.setAutoRaise(True)
+        self._right.clicked.connect(lambda: self.scroll_by(160))
+        self._head = QHBoxLayout()
+        self._head.setContentsMargins(0, 0, 0, 0)
+        self._head.setSpacing(0)
+        self._head.addWidget(self._left)
+        self._head.addWidget(self._scroll, 1)
+        self._head.addWidget(self._right)
         self._corner: QWidget | None = None
-        root.addWidget(self._bar)
+        root.addLayout(self._head)
         line = QWidget()
         line.setFixedHeight(1)
         line.setStyleSheet(f"background: {LINE};")
         root.addWidget(line)
         self._stack = QStackedWidget()
         root.addWidget(self._stack, 1)
+
+    def scroll_by(self, dx: int) -> None:
+        bar = self._scroll.horizontalScrollBar()
+        bar.setValue(bar.value() + dx)
 
     # --- QTabWidget-Schnittstelle
     def addTab(self, widget: QWidget, text: str, glyph: str = "") -> int:  # noqa: N802
@@ -98,6 +135,7 @@ class NavTabs(QWidget):
             b.blockSignals(was)
             b.update()
         self._stack.setCurrentIndex(i)
+        self._scroll.ensureWidgetVisible(self._buttons[i], 20, 0)
         if changed:
             self.currentChanged.emit(i)
 
@@ -114,6 +152,6 @@ class NavTabs(QWidget):
         return self._pages[i] if 0 <= i < len(self._pages) else None
 
     def setCornerWidget(self, w: QWidget) -> None:  # noqa: N802
-        """Rechts neben der Reiterleiste (z. B. der Export-Knopf)."""
+        """Rechts neben der Reiterleiste, bleibt beim Verschieben stehen (z. B. der Export-Knopf)."""
         self._corner = w
-        self._bar_lay.addWidget(w)
+        self._head.addWidget(w)

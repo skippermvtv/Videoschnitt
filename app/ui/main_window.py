@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from .. import paths
 from ..core import effects as fx
-from ..core import diagnostics, exporter, grade as gradelib, preview as prevcache, presets, settings, stabilize, subtitles as subs, updater, window as projwin
+from ..core import diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
 from ..core.history import History
 from ..core.fontcheck import missing_chars
 from ..core.helptext import help_html
@@ -33,8 +33,9 @@ from .colorwidgets import ColorWheel, CurveEditor
 from .maskcanvas import MaskCanvas
 from .navtabs import NavTabs
 from .theme import BRAND, MUTED
-from .timeline import FX_MIME, MEDIA_MIME, Timeline
-from .workers import StabilizeWorker, TrackWorker, FrameWorker, ThumbWorker, ExportWorker, GradePreviewWorker, UpdateCheckWorker, UpdateDownloadWorker, WaveformWorker, AsrWorker, WhisperSetupWorker, DiagnoseWorker
+from .curveeditor import SpeedCurveEditor
+from .timeline import FX_MIME, MEDIA_MIME, TITLE_MIME, TRANS_MIME, Timeline
+from .workers import TransThumbWorker, StabilizeWorker, TrackWorker, FrameWorker, ThumbWorker, ExportWorker, GradePreviewWorker, UpdateCheckWorker, UpdateDownloadWorker, WaveformWorker, AsrWorker, WhisperSetupWorker, DiagnoseWorker
 
 VIDEO_FILTER = ("Videos und Bilder (*.mp4 *.mov *.mkv *.avi *.webm *.m4v *.wmv *.flv *.mts *.m2ts "
                 "*.jpg *.jpeg *.png *.webp *.bmp *.tif *.tiff);;Alle Dateien (*)")
@@ -42,7 +43,8 @@ LAYOUTS = [("", "Automatisch (vom Format)"), ("fit", "Einpassen (schwarze Balken
            ("fill", "Füllen (zuschneiden)"), ("blur", "Unscharfer Hintergrund")]
 AUDIO_FILTER = ("Audio und Videos (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus *.wma *.mp4 *.mov *.mkv *.webm);;"
                 "Alle Dateien (*)")
-TAB_MEDIA, TAB_FORMAT, TAB_GRADE, FX_TAB, TAB_TEXT, TAB_CLIP, AUDIO_TAB, OVERLAY_TAB, SUBTITLE_TAB, MOTION_TAB = range(10)
+(TAB_MEDIA, TAB_FORMAT, TAB_GRADE, FX_TAB, TAB_TITLES, TAB_TRANS, TAB_TEXT, TAB_CLIP, AUDIO_TAB, OVERLAY_TAB, TAB_SPLIT,
+ SUBTITLE_TAB, MOTION_TAB) = range(13)
 SRT_FILTER = "Untertitel (*.srt);;Alle Dateien (*)"
 ASR_LANGS = [("auto", "Automatisch erkennen"), ("de", "Deutsch"), ("en", "Englisch"), ("pl", "Polnisch"),
              ("es", "Spanisch"), ("fr", "Französisch"), ("it", "Italienisch"), ("tr", "Türkisch"), ("ru", "Russisch")]
@@ -67,6 +69,19 @@ class MediaList(QListWidget):
     def mimeData(self, items):  # noqa: N802
         md = QMimeData()
         md.setText(MEDIA_MIME + "\n".join(str(it.data(Qt.ItemDataRole.UserRole)) for it in items))
+        return md
+
+
+class TagList(QListWidget):
+    """Liste, deren Einträge sich auf die Timeline ziehen lassen; `tag` + Kennung der Einträge (UserRole) wird mitgegeben."""
+
+    def __init__(self, tag: str, parent=None):
+        super().__init__(parent)
+        self._tag = tag
+
+    def mimeData(self, items):  # noqa: N802
+        md = QMimeData()
+        md.setText(self._tag + "\n".join(str(it.data(Qt.ItemDataRole.UserRole)) for it in items[:1]))
         return md
 
 
@@ -139,6 +154,9 @@ class MainWindow(QMainWindow):
         self._limit_ms: int | None = None
         self._project_file = ""
         self._worker = None
+        self._multi_jobs: list = []
+        self._multi_ok: list = []
+        self._multi_total = 0
         self._tmp_dirs: list[Path] = []
         self._grade_worker = None
         self._grade_dirty = False
@@ -196,11 +214,14 @@ class MainWindow(QMainWindow):
         self._populate_presets()
         self._sync_controls_from_project()
         self._refresh_timeline()
+        if self._ask_on_close:                 # nur im echten Programm, Tests lassen die Einstellungen in Ruhe
+            self._restore_ui()
         prevcache.cleanup()
         self._hist_timer.start()
         self._autosave_timer.start()
         if self._ask_on_close:
             QTimer.singleShot(900, self._offer_restore)
+        QTimer.singleShot(600, self._start_trans_thumbs)
         if updater.configured():
             QTimer.singleShot(2500, lambda: self.check_updates(silent=True))
 
@@ -252,6 +273,8 @@ class MainWindow(QMainWindow):
         self.timeline.fx_edited.connect(self._on_fx_edited)
         self.timeline.effect_dropped.connect(self._on_fx_dropped)
         self.timeline.media_dropped.connect(self._on_media_dropped)
+        self.timeline.title_dropped.connect(self._on_title_dropped)
+        self.timeline.transition_dropped.connect(self._on_transition_dropped)
         self.timeline.lane_mute_toggled.connect(self._on_lane_mute)
         bv.addWidget(self.timeline, 1)
 
@@ -262,10 +285,13 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_format_tab(), "Format", "▭")
         self.tabs.addTab(self._build_grade_tab(), "Bild", "◐")
         self.tabs.addTab(self._build_effects_tab(), "Effekte", "✦")
+        self.tabs.addTab(self._build_titles_tab(), "Titel", "Ａ")
+        self.tabs.addTab(self._build_transitions_tab(), "Übergänge", "⇄")
         self.tabs.addTab(self._build_text_tab(), "Text", "T")
         self.tabs.addTab(self._build_clip_tab(), "Clip", "✂")
         self.tabs.addTab(self._build_audio_tab(), "Ton", "♪")
         self.tabs.addTab(self._build_overlay_tab(), "Bild-in-Bild", "❏")
+        self.tabs.addTab(self._build_split_tab(), "Split", "▥")
         self.tabs.addTab(self._build_subtitle_tab(), "Untertitel", "≣")
         self.tabs.addTab(self._build_motion_tab(), "Bewegung", "➤")
         self.btn_export = QPushButton("EXPORT")
@@ -284,6 +310,7 @@ class MainWindow(QMainWindow):
         vsplit.setStretchFactor(0, 3)
         vsplit.setStretchFactor(1, 2)
         vsplit.setSizes([520, 340])
+        self._hsplit, self._vsplit = top, vsplit
 
         self.statusBar().showMessage("Bereit. Ziehe Videodateien ins Fenster, um zu starten.")
 
@@ -326,6 +353,193 @@ class MainWindow(QMainWindow):
         b2.clicked.connect(self._add_selected_media)
         v.addWidget(b2)
         return w
+
+    def _build_titles_tab(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(8, 8, 8, 8)
+        v.addWidget(QLabel("Titel-Vorlagen – Doppelklick legt den Titel am Abspielkopf an, oder auf die Timeline ziehen."))
+        self.title_list = TagList(TITLE_MIME)
+        self.title_list.setDragEnabled(True)
+        self.title_list.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self.title_list.setDefaultDropAction(Qt.DropAction.CopyAction)
+        for t in titlelib.templates():
+            it = QListWidgetItem(f"{t['name']}\n{t.get('info', '')}")
+            it.setData(Qt.ItemDataRole.UserRole, t["id"])
+            self.title_list.addItem(it)
+        self.title_list.itemDoubleClicked.connect(lambda it: self.add_title(it.data(Qt.ItemDataRole.UserRole)))
+        v.addWidget(self.title_list, 1)
+        b = QPushButton("＋ Am Abspielkopf einfügen")
+        b.clicked.connect(lambda: self.add_title(None))
+        v.addWidget(b)
+        hint = QLabel("Danach im Reiter „Text“ den Wortlaut, die Schrift und die Zeiten ändern.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {MUTED};")
+        v.addWidget(hint)
+        return w
+
+    def _build_transitions_tab(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(8, 8, 8, 8)
+        v.addWidget(QLabel("Übergänge – Doppelklick legt ihn hinter den gewählten Clip, oder auf eine Clipgrenze ziehen."))
+        self.trans_list = TagList(TRANS_MIME)
+        self.trans_list.setObjectName("medialist")
+        self.trans_list.setViewMode(QListView.ViewMode.IconMode)
+        self.trans_list.setIconSize(QSize(120, 68))
+        self.trans_list.setGridSize(QSize(136, 100))
+        self.trans_list.setResizeMode(QListView.ResizeMode.Adjust)
+        self.trans_list.setMovement(QListView.Movement.Static)
+        self.trans_list.setWordWrap(True)
+        self.trans_list.setDragEnabled(True)
+        self.trans_list.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self.trans_list.setDefaultDropAction(Qt.DropAction.CopyAction)
+        for t in presets.load("transitions"):
+            it = QListWidgetItem(t["name"])
+            it.setData(Qt.ItemDataRole.UserRole, t["id"])
+            self.trans_list.addItem(it)
+        self.trans_list.itemDoubleClicked.connect(lambda it: self.apply_transition(it.data(Qt.ItemDataRole.UserRole)))
+        v.addWidget(self.trans_list, 1)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Dauer"))
+        self.trans_dur = QDoubleSpinBox()
+        self.trans_dur.setRange(0.1, 5.0)
+        self.trans_dur.setSingleStep(0.1)
+        self.trans_dur.setSuffix(" s")
+        self.trans_dur.setValue(0.8)
+        row.addWidget(self.trans_dur)
+        row.addStretch(1)
+        v.addLayout(row)
+        r2 = QHBoxLayout()
+        b1 = QPushButton("Auf gewählten Clip")
+        b1.setToolTip("Übergang zwischen dem gewählten und dem nächsten Clip")
+        b1.clicked.connect(lambda: self.apply_transition(None))
+        b2 = QPushButton("Auf alle Clips")
+        b2.clicked.connect(lambda: self.apply_transition(None, all_clips=True))
+        b3 = QPushButton("Entfernen")
+        b3.setToolTip("Harter Schnitt nach dem gewählten Clip")
+        b3.clicked.connect(lambda: self.apply_transition("", None))
+        for b in (b1, b2, b3):
+            r2.addWidget(b)
+        v.addLayout(r2)
+        return w
+
+    def _build_split_tab(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(8, 8, 8, 8)
+        hint = QLabel("Split Screen: Mehrere Videos laufen nebeneinander im Bild. Lege sie als Bild-in-Bild zur selben Zeit "
+                      "auf V2 (oder markiere unten Medien und klicke „Medien als Split einfügen“), wähle ein Layout und "
+                      "klicke „Anwenden“. Jedes Video füllt sein Feld aus, überstehende Ränder werden abgeschnitten. "
+                      "Der Ton des Hauptvideos bleibt unverändert.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {MUTED};")
+        v.addWidget(hint)
+        form = QFormLayout()
+        self.split_layout = QComboBox()
+        glyph = {"2h": "▌▐", "2v": "▀▄", "3l": "▌▝▗", "3c": "▌▌▌", "4": "▛▜▙▟"}
+        for lid, name, cells in splitlib.LAYOUTS:
+            self.split_layout.addItem(f"{glyph.get(lid, '')}  {name}  ({len(cells)} Videos)", lid)
+        form.addRow("Layout", self.split_layout)
+        self.split_main = QComboBox()
+        self.split_main.addItem("Hauptvideo nicht im Split", "")
+        self.split_main.addItem("Hauptvideo im ersten Feld", "first")
+        self.split_main.addItem("Hauptvideo im letzten Feld", "last")
+        self.split_main.setToolTip("Dann braucht es ein Bild-in-Bild weniger: das Hauptvideo (V1) füllt das Feld selbst.")
+        form.addRow("Hauptvideo", self.split_main)
+        self.split_gap = QDoubleSpinBox()
+        self.split_gap.setRange(0.0, 10.0)
+        self.split_gap.setSingleStep(0.5)
+        self.split_gap.setDecimals(1)
+        self.split_gap.setSuffix(" %")
+        self.split_gap.setToolTip("Breite der Trennlinie zwischen den Feldern (in % der Bildbreite). 0 = keine Linie.")
+        form.addRow("Trennlinie", self.split_gap)
+        self.split_line = QComboBox()
+        for label, col in (("Schwarz", "#000000"), ("Weiß", "#ffffff"), ("Rot", "#e53935"), ("Türkis", "#17c3b2")):
+            self.split_line.addItem(label, col)
+        form.addRow("Linienfarbe", self.split_line)
+        v.addLayout(form)
+        b1 = QPushButton("Anwenden (gewählter Block + gleichzeitige Blöcke)")
+        b1.clicked.connect(lambda *_: self.apply_split())
+        b2 = QPushButton("Gewählte Medien als Split einfügen")
+        b2.setToolTip("In der Medienliste Videos oder Bilder markieren (Strg+Klick), dann hier klicken.")
+        b2.clicked.connect(lambda *_: self.split_from_media())
+        b3 = QPushButton("Split aufheben")
+        b3.clicked.connect(lambda *_: self.clear_split())
+        for b in (b1, b2, b3):
+            v.addWidget(b)
+        self.split_info = QLabel("")
+        self.split_info.setWordWrap(True)
+        self.split_info.setStyleSheet(f"color: {MUTED};")
+        v.addWidget(self.split_info)
+        v.addStretch(1)
+        return w
+
+    def _split_layout_id(self) -> str:
+        return str(self.split_layout.currentData() or "2h")
+
+    def _split_gap(self) -> float:
+        v = self.split_gap.value()
+        return float(v) if isinstance(v, (int, float)) else 0.0
+
+    def _split_line(self) -> str:
+        c = self.split_line.currentData()
+        return c if isinstance(c, str) else "#000000"
+
+    def _split_main(self) -> str:
+        m = self.split_main.currentData()
+        return m if m in ("first", "last") else ""
+
+    def _split_status(self, text: str) -> None:
+        self.split_info.setText(text)
+        self.statusBar().showMessage(text)
+
+    def apply_split(self, layout_id: str | None = None) -> list[int]:
+        """Teilt das Bild: der gewählte Bild-in-Bild-Block und die gleichzeitig laufenden bekommen je ein Feld."""
+        lid = layout_id or self._split_layout_id()
+        t = self.timeline.playhead if self.timeline.playhead >= 0 else 0.0
+        try:
+            used = splitlib.apply(self.project, lid, self.osel, t, gap=self._split_gap(), line=self._split_line(),
+                                  main=self._split_main())
+        except splitlib.SplitError as exc:
+            self._split_status(str(exc))
+            return []
+        self.osel = used[0]
+        self.asel = -1
+        self._refresh_timeline()
+        self._load_overlay_fields()
+        self._split_status(f"Split „{splitlib.layout(lid)[0]}“ angewendet ({len(used)} Videos).")
+        return used
+
+    def split_from_media(self, layout_id: str | None = None) -> list[int]:
+        """Fügt die in der Medienliste markierten Dateien als Bild-in-Bild an der Abspielposition ein und teilt das Bild."""
+        lid = layout_id or self._split_layout_id()
+        name, cells = splitlib.layout(lid)
+        if self._split_main():
+            cells = cells[1:]                      # das Hauptvideo füllt ein Feld selbst
+        files = [str(it.data(Qt.ItemDataRole.UserRole)) for it in self.media_list.selectedItems()]
+        if len(files) < len(cells):
+            self._split_status(f"„{name}“ braucht {len(cells)} Videos – in der Medienliste sind {len(files)} markiert.")
+            return []
+        first = len(self.project.overlays)
+        self.add_overlay_files(files[:len(cells)])
+        new = list(range(first, len(self.project.overlays)))
+        if len(new) < len(cells):
+            self._split_status("Nicht alle Dateien konnten eingefügt werden.")
+            return []
+        used = splitlib.apply(self.project, lid, indices=new, gap=self._split_gap(), line=self._split_line(), main=self._split_main())
+        self.osel = used[0]
+        self._refresh_timeline()
+        self._load_overlay_fields()
+        self.tabs.setCurrentIndex(TAB_SPLIT)
+        self._split_status(f"Split „{name}“ eingefügt ({len(used)} Videos).")
+        return used
+
+    def clear_split(self) -> None:
+        n = splitlib.clear(self.project)
+        self._refresh_timeline()
+        self._load_overlay_fields()
+        self._split_status(f"Split aufgehoben ({n} Blöcke)." if n else "Es gibt kein Split.")
 
     def _build_preview_panel(self) -> QWidget:
         w = QWidget()
@@ -447,6 +661,29 @@ class MainWindow(QMainWindow):
         tool("＋", "Timeline vergrößern", lambda: self.timeline.zoom_by(1.5))
         tool("Alles", "Ganzes Projekt zeigen", self.timeline.zoom_fit)
 
+    # -- Oberfläche merken (1.4.2)
+    def _restore_ui(self) -> None:
+        """Stellt Spursperren, Zoom, Fensteraufteilung und den letzten Reiter aus den Einstellungen wieder her."""
+        from .timeline import LANE_LABELS, MAX_ZOOM
+        ui = settings.clean_ui(settings.load(), len(LANE_LABELS), self.tabs.count(), MAX_ZOOM)
+        self.timeline.set_locked(ui["ui_locked"])
+        if ui["ui_zoom"] > 1.0:
+            self.timeline.zoom_by(ui["ui_zoom"])
+            self._sync_zoom_slider()
+        if ui["ui_hsplit"]:
+            self._hsplit.setSizes(ui["ui_hsplit"])
+        if ui["ui_vsplit"]:
+            self._vsplit.setSizes(ui["ui_vsplit"])
+        self.tabs.setCurrentIndex(ui["ui_tab"])
+
+    def _save_ui(self) -> None:
+        try:
+            settings.save({"ui_locked": self.timeline.locked_lanes(), "ui_zoom": float(self.timeline.zoom),
+                           "ui_hsplit": [int(x) for x in self._hsplit.sizes()],
+                           "ui_vsplit": [int(x) for x in self._vsplit.sizes()], "ui_tab": int(self.tabs.currentIndex())})
+        except Exception:  # noqa: BLE001  – Speichern der Oberfläche darf das Beenden nie stören
+            pass
+
     def _on_zoom_slider(self, v: int) -> None:
         from .timeline import MAX_ZOOM
         target = MAX_ZOOM ** (v / 100.0)
@@ -481,6 +718,72 @@ class MainWindow(QMainWindow):
         if self.view_stack.currentIndex() == 1:             # Masken-Rahmen offen: erst schließen
             self._mask_edit_off()
         self.video.setFullScreen(True)
+
+    # -- Titel
+    def add_title(self, tid: str | None, at: float | None = None) -> None:
+        """Legt eine Titel-Vorlage als Textebene an (Standard: gewählte Vorlage, am Abspielkopf)."""
+        if tid is None:
+            it = self.title_list.currentItem()
+            tid = it.data(Qt.ItemDataRole.UserRole) if it else None
+        tpl = next((t for t in titlelib.templates() if t["id"] == tid), None)
+        if tpl is None:
+            self.statusBar().showMessage("Zuerst eine Titel-Vorlage in der Liste wählen.")
+            return
+        start = max(0.0, self.timeline.playhead if at is None else at)
+        layer = titlelib.make_layer(tpl, start, self._fonts, "")           # "" = Standardschrift (hat „ “ – … im Gegensatz zur Metal-Schrift)
+        self.project.texts.append(layer)
+        self.text_list.addItem(self._text_title(layer))
+        self.text_list.setCurrentRow(len(self.project.texts) - 1)
+        self.tabs.setCurrentIndex(TAB_TEXT)
+        self.statusBar().showMessage(f"Titel „{tpl['name']}“ eingefügt – im Reiter „Text“ kannst du ihn ändern.")
+
+    def _on_title_dropped(self, tid: str, t: float) -> None:
+        self.add_title(tid, t)
+
+    # -- Übergänge
+    def apply_transition(self, tid: str | None, idx: int | None = None, all_clips: bool = False) -> None:
+        """Setzt den Übergang nach Clip `idx` (Standard: gewählter Clip). tid "" = harter Schnitt, None = gewählte Vorlage."""
+        if tid is None:
+            it = self.trans_list.currentItem()
+            tid = it.data(Qt.ItemDataRole.UserRole) if it else None
+            if tid is None:
+                self.statusBar().showMessage("Zuerst einen Übergang in der Liste wählen.")
+                return
+        n = len(self.project.clips)
+        targets = list(range(n - 1)) if all_clips else [self.sel if idx is None else idx]
+        targets = [i for i in targets if 0 <= i < n - 1]
+        if not targets:
+            self.statusBar().showMessage("Ein Übergang braucht einen Clip, auf den noch ein weiterer folgt.")
+            return
+        for i in targets:
+            c = self.project.clips[i]
+            c.transition = tid
+            if tid:
+                c.transition_dur = self.trans_dur.value()
+        self.project.sync_linked()
+        self._refresh_timeline(select=targets[0] if not all_clips else self.sel)
+        name = next((t["name"] for t in presets.load("transitions") if t["id"] == tid), "") if tid else "harter Schnitt"
+        self.statusBar().showMessage(f"Übergang „{name}“ gesetzt ({len(targets)} Clip{'s' if len(targets) != 1 else ''}).")
+
+    def _on_transition_dropped(self, tid: str, idx: int) -> None:
+        self.apply_transition(tid, idx)
+
+    def _start_trans_thumbs(self) -> None:
+        items = [(t["id"], t.get("xfade", "fade")) for t in presets.load("transitions")]
+        w = TransThumbWorker(items, self)
+        self._thumb_workers.append(w)
+        w.done.connect(self._on_trans_thumb)
+        w.finished.connect(lambda w=w: self._thumb_workers.remove(w) if w in self._thumb_workers else None)
+        w.start()
+
+    def _on_trans_thumb(self, tid: str, png: str, err: str) -> None:
+        if err or not png:
+            return
+        for i in range(self.trans_list.count()):
+            it = self.trans_list.item(i)
+            if it.data(Qt.ItemDataRole.UserRole) == tid:
+                it.setIcon(QIcon(QPixmap(png)))
+                break
 
     def _on_media_dropped(self, files: list, idx: int) -> None:
         for k, f in enumerate(files):
@@ -1090,6 +1393,8 @@ class MainWindow(QMainWindow):
         vr = QHBoxLayout()
         vr.addWidget(self.clip_vol, 1)
         vr.addWidget(self.clip_vol_label)
+        self.clip_dn, self.clip_dn_label, dnr = self._fix_slider(self._on_clip_field)
+        self.clip_vc, self.clip_vc_label, vcr = self._fix_slider(self._on_clip_field)
         self.clip_mute = QCheckBox("Ton stummschalten")
         self.clip_mute.toggled.connect(self._on_clip_field)
         self.clip_rev = QCheckBox("Rückwärts abspielen (nur kurze Clips)")
@@ -1099,6 +1404,8 @@ class MainWindow(QMainWindow):
         form.addRow("Ende im Clip", self.clip_out)
         form.addRow("Geschwindigkeit", self.clip_speed)
         form.addRow("Lautstärke", vr)
+        form.addRow("Rauschen entfernen", dnr)
+        form.addRow("Sprache klarer", vcr)
         form.addRow(self.clip_mute)
         self.clip_audio_note = QLabel("Der Ton dieses Clips liegt als eigener Block auf A1 (Registerkarte „Ton“).")
         self.clip_audio_note.setWordWrap(True)
@@ -1119,6 +1426,30 @@ class MainWindow(QMainWindow):
         hint = QLabel("Zeitlupe: Geschwindigkeit unter 1, Zeitraffer: über 1.")
         hint.setStyleSheet(f"color: {MUTED};")
         form.addRow(hint)
+        # --- Geschwindigkeitskurve (1.4.2)
+        form.addRow(QLabel("Geschwindigkeitskurve"))
+        self.ramp_preset = QComboBox()
+        self.ramp_preset.addItem("– Vorlage wählen –", "")
+        for rid, rname, rpts in rampmod.PRESETS:
+            self.ramp_preset.addItem(rname, rid)
+        self.ramp_preset.currentIndexChanged.connect(self._on_ramp_preset)
+        self.ramp_text = QLineEdit()
+        self.ramp_text.setPlaceholderText("Position in %:Tempo, z. B. 0:1, 50:0.25, 100:1")
+        self.ramp_text.setToolTip("Punkte der Kurve als „Position im Clip in %:Tempo“, durch Komma getrennt. "
+                                  "Dazwischen wird weich übergeblendet. Tempo 0.25 = Zeitlupe, 2 = doppelt so schnell.")
+        self.ramp_text.textChanged.connect(self._on_ramp_text)
+        self.ramp_info = QLabel("")
+        self.ramp_info.setWordWrap(True)
+        self.ramp_info.setStyleSheet(f"color: {MUTED};")
+        btn_ramp = QPushButton("Kurve anwenden (teilt den Clip in Abschnitte)")
+        btn_ramp.clicked.connect(lambda *_: self.apply_speed_ramp())
+        self.ramp_curve = SpeedCurveEditor()
+        self.ramp_curve.pointsChanged.connect(self._on_ramp_curve)
+        form.addRow("Vorlage", self.ramp_preset)
+        form.addRow(self.ramp_curve)
+        form.addRow("Punkte", self.ramp_text)
+        form.addRow(self.ramp_info)
+        form.addRow(btn_ramp)
         self.clip_trans = QComboBox()
         self.clip_trans.addItem("– harter Schnitt –", "")
         for t in presets.load("transitions"):
@@ -1143,6 +1474,23 @@ class MainWindow(QMainWindow):
         self.clip_tab = w
         w.setEnabled(False)
         return w
+
+    def _fix_slider(self, handler) -> tuple[QSlider, QLabel, QHBoxLayout]:
+        """Regler 0 (aus) … 100 für „Rauschen entfernen“ / „Sprache klarer“."""
+        sl = QSlider(Qt.Orientation.Horizontal)
+        sl.setRange(0, 100)
+        sl.setValue(0)
+        sl.valueChanged.connect(handler)
+        lab = QLabel("aus")
+        lab.setFixedWidth(48)
+        row = QHBoxLayout()
+        row.addWidget(sl, 1)
+        row.addWidget(lab)
+        return sl, lab, row
+
+    @staticmethod
+    def _fix_text(v: int) -> str:
+        return f"{int(v)} %" if v else "aus"
 
     def _build_audio_tab(self) -> QWidget:
         outer = QWidget()
@@ -1202,6 +1550,10 @@ class MainWindow(QMainWindow):
         vr.addWidget(self.aud_vol, 1)
         vr.addWidget(self.aud_vol_label)
         form.addRow("Lautstärke", vr)
+        self.aud_dn, self.aud_dn_label, dnr = self._fix_slider(self._on_audio_field)
+        self.aud_vc, self.aud_vc_label, vcr = self._fix_slider(self._on_audio_field)
+        form.addRow("Rauschen entfernen", dnr)
+        form.addRow("Sprache klarer", vcr)
         form.addRow("Einblenden", self.aud_fin)
         form.addRow("Ausblenden", self.aud_fout)
         self.aud_loop = QCheckBox("Wiederholen, bis das Video endet")
@@ -1270,9 +1622,15 @@ class MainWindow(QMainWindow):
         dr.addWidget(self.mix_duck_amount, 1)
         dr.addWidget(self.mix_duck_label)
         mf.addRow("Stärke", dr)
-        self.mix_norm = QCheckBox("Lautheit angleichen (−14 LUFS, wie YouTube/TikTok)")
+        self.mix_norm = QCheckBox("Lautheit angleichen")
         self.mix_norm.toggled.connect(self._on_mix_field)
+        self.mix_lufs = QComboBox()
+        for val, label in ((-14.0, "−14 LUFS (YouTube, TikTok, Shorts)"), (-16.0, "−16 LUFS (Podcast, Instagram)"),
+                           (-23.0, "−23 LUFS (Fernsehen, EBU R128)")):
+            self.mix_lufs.addItem(label, val)
+        self.mix_lufs.currentIndexChanged.connect(self._on_mix_field)
         mf.addRow(self.mix_norm)
+        mf.addRow("Ziel", self.mix_lufs)
         v.addWidget(mix)
         v.addStretch(1)
         return outer
@@ -1349,6 +1707,28 @@ class MainWindow(QMainWindow):
         self.ov_border = QCheckBox("Weißer Rahmen")
         self.ov_border.toggled.connect(self._on_overlay_field)
         form.addRow(self.ov_border)
+        self.ov_sound = QCheckBox("Ton des Videos mitspielen")
+        self.ov_sound.toggled.connect(self._on_overlay_field)
+        self.ov_volume = dspin(0.0, 200.0, 5.0)
+        self.ov_volume.setValue(100.0)
+        self.ov_volume.setSuffix(" %")
+        form.addRow(self.ov_sound)
+        form.addRow("Lautstärke", self.ov_volume)
+        self.ov_split_note = QLabel("Dieser Block liegt in einem Split-Feld (Reiter „Split“). Position, Größe und Rahmen "
+                                    "gelten dort nicht.")
+        self.ov_split_note.setWordWrap(True)
+        self.ov_split_note.setStyleSheet(f"color: {MUTED};")
+        self.ov_split_note.setVisible(False)
+        form.addRow(self.ov_split_note)
+        self.ov_cz = dspin(100.0, 400.0, 10.0)
+        self.ov_cz.setSuffix(" %")
+        self.ov_cdx = dspin(-100.0, 100.0, 5.0)
+        self.ov_cdy = dspin(-100.0, 100.0, 5.0)
+        for wdg in (self.ov_cz, self.ov_cdx, self.ov_cdy):
+            wdg.valueChanged.connect(self._on_overlay_field)
+        form.addRow("Ausschnitt: Zoom (Split)", self.ov_cz)
+        form.addRow("Ausschnitt: nach rechts", self.ov_cdx)
+        form.addRow("Ausschnitt: nach unten", self.ov_cdy)
 
         # Chroma-Key (Greenscreen): Hintergrundfarbe transparent machen
         self.ov_key_on = QCheckBox("Chroma-Key: Hintergrundfarbe entfernen (Greenscreen)")
@@ -1358,10 +1738,13 @@ class MainWindow(QMainWindow):
         self.ov_key_swatch.setFixedSize(28, 18)
         self.ov_key_green = QPushButton("Grün")
         self.ov_key_blue = QPushButton("Blau")
+        self.ov_key_eye = QPushButton("Pipette …")
+        self.ov_key_eye.setToolTip("Ein Bild des Videos zeigen und die Farbe per Klick wählen")
         self.ov_key_pick = QPushButton("Andere Farbe …")
         krow.addWidget(self.ov_key_swatch)
         krow.addWidget(self.ov_key_green)
         krow.addWidget(self.ov_key_blue)
+        krow.addWidget(self.ov_key_eye)
         krow.addWidget(self.ov_key_pick, 1)
         form.addRow("Schlüsselfarbe", krow)
         self.ov_key_sim = dspin(0.0, 100.0, 5.0, suffix=" %")
@@ -1377,6 +1760,7 @@ class MainWindow(QMainWindow):
         self.ov_key_green.clicked.connect(lambda *_: self._set_key_color("#00ff00"))
         self.ov_key_blue.clicked.connect(lambda *_: self._set_key_color("#0000ff"))
         self.ov_key_pick.clicked.connect(self._pick_key_color)
+        self.ov_key_eye.clicked.connect(self._pick_key_from_frame)
         self.ov_key_spill.toggled.connect(self._on_overlay_field)
         self.ov_key_full.clicked.connect(self._overlay_fullscreen)
         b1 = QPushButton("Bild-in-Bild löschen")
@@ -1599,6 +1983,7 @@ class MainWindow(QMainWindow):
         self.act_save = act("Projekt speichern", self.save_project, "Ctrl+S")
         self.act_preview = act("▶ Vorschau ab Abspielkopf (volle Qualität)", self.render_preview, "Ctrl+P")
         self.act_export = act("Exportieren …", self.export_video, "Ctrl+E")
+        self.act_export_multi = act("Mehrere Formate exportieren …", self.export_multi, "Ctrl+Shift+E")
         self.act_undo = act("↶ Rückgängig", self.undo, "Ctrl+Z")
         self.act_redo = act("↷ Wiederholen", self.redo)
         self.act_redo.setShortcuts([QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")])
@@ -1611,6 +1996,7 @@ class MainWindow(QMainWindow):
         mf.addSeparator()
         mf.addAction(self.act_preview)
         mf.addAction(self.act_export)
+        mf.addAction(self.act_export_multi)
 
         # Name oben rechts in der Menüleiste (rot, wie das Logo)
         brand = QLabel(APP_NAME)
@@ -2269,9 +2655,16 @@ class MainWindow(QMainWindow):
         self.clip_vol.setEnabled(not c.audio_detached)
         self.clip_audio_note.setVisible(c.audio_detached)
         self.clip_rev.setChecked(c.reverse)
+        self.clip_dn.setValue(int(c.denoise))
+        self.clip_vc.setValue(int(c.voice))
+        self.clip_dn.setEnabled(c.has_audio and not c.audio_detached)
+        self.clip_vc.setEnabled(c.has_audio and not c.audio_detached)
+        self.clip_dn_label.setText(self._fix_text(c.denoise))
+        self.clip_vc_label.setText(self._fix_text(c.voice))
         self.clip_stab.setValue(int(c.stabilize))
         self.clip_stab.setEnabled(not c.is_image)
         self.clip_stab_label.setText(f"{int(c.stabilize)} %" if c.stabilize else "aus")
+        self._on_ramp_text()
         last = self.sel >= len(self.project.clips) - 1
         self.clip_trans.setCurrentIndex(max(0, self.clip_trans.findData(c.transition)))
         self.clip_trans_dur.setValue(c.transition_dur)
@@ -2284,6 +2677,8 @@ class MainWindow(QMainWindow):
 
     def _on_clip_field(self, *_args) -> None:
         self.clip_vol_label.setText(f"{self.clip_vol.value()} %")
+        self.clip_dn_label.setText(self._fix_text(self.clip_dn.value()))
+        self.clip_vc_label.setText(self._fix_text(self.clip_vc.value()))
         self.clip_stab_label.setText(f"{self.clip_stab.value()} %" if self.clip_stab.value() else "aus")
         if self._loading or not (0 <= self.sel < len(self.project.clips)):
             return
@@ -2293,6 +2688,8 @@ class MainWindow(QMainWindow):
         c.speed = self.clip_speed.value()
         c.volume = self.clip_vol.value() / 100.0
         c.mute = self.clip_mute.isChecked()
+        if not c.audio_detached:
+            c.denoise, c.voice = int(self.clip_dn.value()), int(self.clip_vc.value())
         c.reverse = self.clip_rev.isChecked()
         c.stabilize = 0 if c.is_image else int(self.clip_stab.value())
         c.transition = str(self.clip_trans.currentData() or "")
@@ -2300,6 +2697,61 @@ class MainWindow(QMainWindow):
         self.project.sync_linked()
         self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
         self._update_duration()
+
+    # -- Geschwindigkeitskurve
+    def _on_ramp_preset(self, *_args) -> None:
+        rid = self.ramp_preset.currentData()
+        for pid, _name, pts in rampmod.PRESETS:
+            if pid == rid:
+                self.ramp_text.setText(rampmod.format_points(pts))
+                return
+
+    def _on_ramp_curve(self, pts) -> None:
+        """Zeichenfläche → Textfeld (das Textfeld bleibt die Quelle für „Kurve anwenden“)."""
+        self.ramp_text.setText(rampmod.format_points(pts))
+
+    def _on_ramp_text(self, *_args) -> None:
+        """Zeigt, wie lang der Clip mit dieser Kurve wird (oder was an der Eingabe nicht stimmt)."""
+        text = self.ramp_text.text()
+        text = text.strip() if isinstance(text, str) else ""
+        if text:                                       # Textfeld/Vorlage → Zeichenfläche
+            try:
+                self.ramp_curve.set_points(rampmod.parse_points(text))
+            except rampmod.SpeedRampError:
+                pass
+        if not text:
+            self.ramp_info.setText("")
+            return
+        c = self.project.clips[self.sel] if 0 <= self.sel < len(self.project.clips) else None
+        try:
+            pts = rampmod.parse_points(text)
+        except rampmod.SpeedRampError as exc:
+            self.ramp_info.setText(str(exc))
+            return
+        if c is None:
+            self.ramp_info.setText("Zuerst einen Clip in der Timeline anklicken.")
+            return
+        new = rampmod.new_length(pts, max(0.05, c.out_pt - c.in_pt), c.speed)
+        self.ramp_info.setText(f"Länge: {fmt_time(c.length)} → {fmt_time(new)}")
+
+    def apply_speed_ramp(self) -> list[int]:
+        """Teilt den gewählten Clip nach der Kurve in Abschnitte mit gleichbleibender Geschwindigkeit."""
+        if not (0 <= self.sel < len(self.project.clips)):
+            self.statusBar().showMessage("Zuerst einen Clip in der Timeline anklicken.")
+            return []
+        try:
+            pts = rampmod.parse_points(self.ramp_text.text())
+            was_detached = self.project.clips[self.sel].audio_detached
+            used = rampmod.apply(self.project, self.sel, pts)
+        except rampmod.SpeedRampError as exc:
+            self.ramp_info.setText(str(exc))
+            self.statusBar().showMessage(str(exc))
+            return []
+        self._refresh_timeline(select=used[0])
+        self.statusBar().showMessage(f"Geschwindigkeitskurve angewendet: {len(used)} Abschnitte"
+                                     + (" (der getrennte Ton wurde wieder mit dem Clip verbunden)" if was_detached else "")
+                                     + ". Rückgängig mit Strg+Z.")
+        return used
 
     # ----------------------------------------------- Drehen / Zuschneiden / Bewegung
     def _load_motion_fields(self) -> None:
@@ -2626,6 +3078,19 @@ class MainWindow(QMainWindow):
         self.ov_fin.setValue(o.fade_in)
         self.ov_fout.setValue(o.fade_out)
         self.ov_border.setChecked(o.border)
+        self.ov_sound.setChecked(bool(o.sound) and not o.is_image)
+        self.ov_sound.setEnabled(not o.is_image)
+        self.ov_volume.setValue(o.volume)
+        self.ov_volume.setEnabled(not o.is_image and bool(o.sound))
+        in_split = splitlib.is_split(o)
+        self.ov_split_note.setVisible(in_split)
+        for wdg in (self.ov_x, self.ov_y, self.ov_size, self.ov_border, self.ov_corner):
+            wdg.setEnabled(not in_split)
+        self.ov_cz.setValue(o.cell_zoom)
+        self.ov_cdx.setValue(o.cell_dx)
+        self.ov_cdy.setValue(o.cell_dy)
+        for wdg in (self.ov_cz, self.ov_cdx, self.ov_cdy):
+            wdg.setEnabled(in_split)
         self._show_key(o)
         key = next((k for k, (cx, cy) in OVERLAY_CORNERS.items() if abs(cx - o.x_pct) < 0.5 and abs(cy - o.y_pct) < 0.5), "")
         self.ov_corner.setCurrentIndex(max(0, self.ov_corner.findData(key)))
@@ -2655,6 +3120,10 @@ class MainWindow(QMainWindow):
         o.fade_in = self.ov_fin.value()
         o.fade_out = self.ov_fout.value()
         o.border = self.ov_border.isChecked()
+        o.cell_zoom, o.cell_dx, o.cell_dy = self.ov_cz.value(), self.ov_cdx.value(), self.ov_cdy.value()
+        o.sound = bool(self.ov_sound.isChecked()) and not o.is_image
+        o.volume = self.ov_volume.value()
+        self.ov_volume.setEnabled(not o.is_image and o.sound)
         o.key_similarity = self.ov_key_sim.value()
         o.key_blend = self.ov_key_blend.value()
         o.key_spill = self.ov_key_spill.isChecked()
@@ -2704,6 +3173,32 @@ class MainWindow(QMainWindow):
         col = QColorDialog.getColor(start, self, "Schlüsselfarbe wählen")
         if col.isValid():
             self._set_key_color(col.name())
+
+    def _overlay_source_frame(self, o: OverlayClip) -> str:
+        """Standbild aus dem Bild-in-Bild-Video (nahe am Anfang des benutzten Teils) für die Pipette; Pfad der PNG-Datei."""
+        import tempfile
+        from ..core import frames
+        d = tempfile.mkdtemp(prefix="fate_pick_")
+        self._tmp_dirs.append(Path(d))
+        png = str(Path(d) / "pick.png")
+        t = o.in_pt + (0.0 if o.is_image else min(1.0, max(0.0, o.out_pt - o.in_pt) / 2.0))
+        frames.extract_frame(o.path, png, t)
+        return png
+
+    def _pick_key_from_frame(self) -> None:
+        """Pipette: Farbe direkt im Bild des Videos anklicken."""
+        o = self._selected_overlay()
+        if o is None:
+            return
+        try:
+            png = self._overlay_source_frame(o)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Pipette", f"Das Bild konnte nicht geladen werden:\n{exc}")
+            return
+        from .pickdialog import PickDialog
+        dlg = PickDialog(png, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.color:
+            self._set_key_color(dlg.color)
 
     def _overlay_fullscreen(self) -> None:
         o = self._selected_overlay()
@@ -2784,6 +3279,10 @@ class MainWindow(QMainWindow):
         self.aud_speed.setValue(a.speed)
         self.aud_vol.setValue(int(round(a.volume * 100)))
         self.aud_vol_label.setText(f"{int(round(a.volume * 100))} %")
+        self.aud_dn.setValue(int(a.denoise))
+        self.aud_vc.setValue(int(a.voice))
+        self.aud_dn_label.setText(self._fix_text(a.denoise))
+        self.aud_vc_label.setText(self._fix_text(a.voice))
         self.aud_fin.setValue(a.fade_in)
         self.aud_fout.setValue(a.fade_out)
         self.aud_loop.setChecked(a.loop)
@@ -2794,6 +3293,8 @@ class MainWindow(QMainWindow):
 
     def _on_audio_field(self, *_args) -> None:
         self.aud_vol_label.setText(f"{self.aud_vol.value()} %")
+        self.aud_dn_label.setText(self._fix_text(self.aud_dn.value()))
+        self.aud_vc_label.setText(self._fix_text(self.aud_vc.value()))
         a = self._selected_audio()
         if self._loading or a is None:
             return
@@ -2803,6 +3304,7 @@ class MainWindow(QMainWindow):
         a.out_pt = max(self.aud_out.value(), a.in_pt + 0.05)
         a.speed = self.aud_speed.value()
         a.volume = self.aud_vol.value() / 100.0
+        a.denoise, a.voice = int(self.aud_dn.value()), int(self.aud_vc.value())
         a.fade_in = self.aud_fin.value()
         a.fade_out = self.aud_fout.value()
         a.loop = self.aud_loop.isChecked()
@@ -2843,6 +3345,8 @@ class MainWindow(QMainWindow):
         self.mix_duck_amount.setValue(int(round(p.ducking_amount * 100)))
         self.mix_duck_label.setText(f"{int(round(p.ducking_amount * 100))} %")
         self.mix_norm.setChecked(p.normalize)
+        self.mix_lufs.setCurrentIndex(max(0, self.mix_lufs.findData(float(p.lufs_target))))
+        self.mix_lufs.setEnabled(p.normalize)
         self.mix_duck_amount.setEnabled(p.ducking)
         self._loading = False
 
@@ -2851,6 +3355,7 @@ class MainWindow(QMainWindow):
             self._mix_labels[t].setText(f"{self._mix_sliders[t].value()} %")
         self.mix_duck_label.setText(f"{self.mix_duck_amount.value()} %")
         self.mix_duck_amount.setEnabled(self.mix_duck.isChecked())
+        self.mix_lufs.setEnabled(self.mix_norm.isChecked())
         if self._loading:
             return
         p = self.project
@@ -2860,6 +3365,8 @@ class MainWindow(QMainWindow):
         p.ducking = self.mix_duck.isChecked()
         p.ducking_amount = self.mix_duck_amount.value() / 100.0
         p.normalize = self.mix_norm.isChecked()
+        tv = self.mix_lufs.currentData()
+        p.lufs_target = float(tv) if isinstance(tv, (int, float)) else -14.0
         self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
 
     def add_audio_dialog(self) -> None:
@@ -3238,14 +3745,8 @@ class MainWindow(QMainWindow):
         if self._stab_wait(self.export_video):
             self.statusBar().showMessage("Stabilisierung wird zuerst analysiert – der Export startet danach.")
             return
-        problems = [(t, missing_chars(t.font, t.text)) for t in self.project.texts]
-        problems = [(t, m) for t, m in problems if m]
-        if problems:
-            detail = "\n".join(f"„{self._text_title(t)}“: {' '.join(m)}" for t, m in problems)
-            if QMessageBox.question(self, "Fehlende Zeichen in der Schrift",
-                                    "Diese Zeichen gibt es in der gewählten Schrift nicht und sie bleiben im Video leer:\n\n"
-                                    f"{detail}\n\nTrotzdem exportieren?") != QMessageBox.StandardButton.Yes:
-                return
+        if not self._confirm_chars():
+            return
         out, _ = QFileDialog.getSaveFileName(self, "Video exportieren", str(Path.home() / "Mein_Video.mp4"), "MP4-Video (*.mp4)")
         if not out:
             return
@@ -3253,6 +3754,101 @@ class MainWindow(QMainWindow):
             out += ".mp4"
         use_hw = self.chk_hw.isChecked() and exporter.hw_encoder() is not None
         self._start_export(out, use_hw)
+
+    def _confirm_chars(self) -> bool:
+        problems = [(t, missing_chars(t.font, t.text)) for t in self.project.texts]
+        problems = [(t, m) for t, m in problems if m]
+        if problems:
+            detail = "\n".join(f"„{self._text_title(t)}“: {' '.join(m)}" for t, m in problems)
+            if QMessageBox.question(self, "Fehlende Zeichen in der Schrift",
+                                    "Diese Zeichen gibt es in der gewählten Schrift nicht und sie bleiben im Video leer:\n\n"
+                                    f"{detail}\n\nTrotzdem exportieren?") != QMessageBox.StandardButton.Yes:
+                return False
+        return True
+
+    # -- Mehrere Formate in einem Rutsch (1.4.3)
+    def export_multi(self) -> None:
+        if not self._check_ready():
+            return
+        if self._stab_wait(self.export_multi):
+            self.statusBar().showMessage("Stabilisierung wird zuerst analysiert – der Export startet danach.")
+            return
+        if not self._confirm_chars():
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Mehrere Formate exportieren")
+        lay = QVBoxLayout(dlg)
+        info = QLabel("Für jedes angehakte Format entsteht eine eigene Datei. Shorts, TikTok und Reels haben dieselbe Größe – "
+                      "meist reicht eine davon. Vorhandene Dateien werden nicht überschrieben (es wird durchnummeriert).")
+        info.setWordWrap(True)
+        lay.addWidget(info)
+        boxes: list[tuple[QCheckBox, str]] = []
+        for f in presets.load("formats"):
+            cb = QCheckBox(f"{f['name']}  ({f['width']}×{f['height']})")
+            cb.setChecked(f["id"] in ("youtube_16_9", "shorts"))
+            lay.addWidget(cb)
+            boxes.append((cb, f["id"]))
+        form = QFormLayout()
+        name = QLineEdit("Mein_Video")
+        folder = QLineEdit(str(Path.home() / "Videos" if (Path.home() / "Videos").is_dir() else Path.home()))
+        pick = QPushButton("Ordner wählen …")
+        pick.clicked.connect(lambda *_: folder.setText(QFileDialog.getExistingDirectory(dlg, "Zielordner", folder.text()) or folder.text()))
+        form.addRow("Dateiname", name)
+        form.addRow("Ordner", folder)
+        form.addRow(pick)
+        lay.addLayout(form)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.run_multi_export([fid for cb, fid in boxes if cb.isChecked()], folder.text().strip(), name.text())
+
+    def run_multi_export(self, format_ids: list[str], folder: str, base: str) -> bool:
+        """Exportiert nacheinander in jedem gewählten Format; gibt False zurück, wenn gar nichts gestartet wurde."""
+        try:
+            jobs = multiexport.plan(self.project, format_ids, folder, base)
+        except multiexport.MultiExportError as exc:
+            QMessageBox.warning(self, "Mehrere Formate exportieren", str(exc))
+            return False
+        self._multi_jobs, self._multi_ok, self._multi_total = list(jobs), [], len(jobs)
+        use_hw = self.chk_hw.isChecked() and exporter.hw_encoder() is not None
+        self._multi_next(use_hw)
+        return True
+
+    def _multi_next(self, use_hw: bool) -> None:
+        if not self._multi_jobs:
+            done = self._multi_ok
+            self.statusBar().showMessage(f"{len(done)} Dateien exportiert.")
+            if done and QMessageBox.question(self, "Export fertig", f"{len(done)} Dateien gespeichert:\n\n"
+                                             + "\n".join(Path(o).name for o in done) + "\n\nOrdner öffnen?") == QMessageBox.StandardButton.Yes:
+                self._open_folder(str(Path(done[0]).parent))
+            return
+        job = self._multi_jobs[0]
+        try:
+            cmd, total, tmp = exporter.build_command(job.project, job.out, use_hw=use_hw)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Export", f"{job.label}: {exc}")
+            self._multi_jobs = []
+            return
+        self._tmp_dirs.append(tmp)
+        k = self._multi_total - len(self._multi_jobs) + 1
+
+        def done(err: str):
+            if err and use_hw:
+                self.statusBar().showMessage("Grafikkarten-Export fehlgeschlagen – neuer Versuch mit dem Prozessor …")
+                QTimer.singleShot(200, lambda: self._multi_next(False))
+                return
+            if err:
+                QMessageBox.critical(self, "Export fehlgeschlagen", f"{job.label}:\n{err}\n\nFertig waren {len(self._multi_ok)} von {self._multi_total}.")
+                self._multi_jobs = []
+                return
+            self._multi_ok.append(job.out)
+            self._multi_jobs.pop(0)
+            self._multi_next(use_hw)
+
+        self._run_job(cmd, total, f"Export {k}/{self._multi_total}: {job.label} …", done)
 
     def _start_export(self, out: str, use_hw: bool) -> None:
         try:
@@ -3591,7 +4187,12 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Update", f"Download fehlgeschlagen:\n{err}")
                 return
             try:
-                updater.launch_installer(Path(path))
+                if not self._confirm_unsaved():          # ungespeicherte Änderungen: erst fragen, dann installieren
+                    QMessageBox.information(self, "Update", f"Das Update ist heruntergeladen. Es wurde nicht installiert:\n{path}")
+                    return
+                if self._ask_on_close:
+                    self._save_ui()
+                updater.launch_installer(Path(path))     # startet das Programm nach der Installation selbst wieder
                 QApplication.quit()
             except Exception as exc:  # noqa: BLE001
                 QMessageBox.critical(self, "Update", str(exc))
@@ -3752,19 +4353,26 @@ class MainWindow(QMainWindow):
                                             Qt.TransformationMode.SmoothTransformation))
         box.exec()
 
-    def closeEvent(self, event):
+    def _confirm_unsaved(self) -> bool:
+        """Fragt bei ungespeicherten Änderungen nach dem Speichern; False = der Benutzer will doch nicht beenden."""
         if self._ask_on_close and (self.project.clips or self.project.audio_clips or self.project.overlays or self.project.subtitles) and self._is_dirty():
             box = QMessageBox.question(
                 self, APP_NAME, "Es gibt ungespeicherte Änderungen. Projekt speichern?",
                 QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel)
             if box == QMessageBox.StandardButton.Cancel:
-                event.ignore()
-                return
+                return False
             if box == QMessageBox.StandardButton.Save:
                 self.save_project()
                 if self._is_dirty():          # Speichern-Dialog abgebrochen
-                    event.ignore()
-                    return
+                    return False
+        return True
+
+    def closeEvent(self, event):
+        if not self._confirm_unsaved():
+            event.ignore()
+            return
+        if self._ask_on_close:
+            self._save_ui()
         self._hist_timer.stop()
         self._autosave_timer.stop()
         self._live_timer.stop()

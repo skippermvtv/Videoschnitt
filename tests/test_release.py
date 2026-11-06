@@ -93,6 +93,15 @@ for name in tests_dir:
     check(name in wf or name == "test_release.py", f"{name} läuft nicht im Workflow")
 iss = (ROOT / "installer.iss").read_text(encoding="utf-8")
 check("SetupIconFile=assets" in iss and "THIRD_PARTY.txt" in iss, "installer.iss ohne Symbol/Lizenzen")
+run_lines = [ln for ln in iss.splitlines() if ln.startswith("Filename:") and "MyAppExe" in ln]
+check(any("skipifsilent" in ln and "postinstall" in ln for ln in run_lines), "installer.iss: Start-Haken im Dialog fehlt")
+check(any("skipifnotsilent" in ln and "postinstall" not in ln for ln in run_lines), "installer.iss: Neustart nach stillem Update fehlt")
+check("RestartApplications=no" in iss, "installer.iss: sonst starten bei Updates zwei Programme")
+from app.core import updater as _upd  # noqa: E402
+_a = _upd.installer_args("C:/x/Setup.exe", "C:/t/u.log")
+check(_a[0] == "C:/x/Setup.exe" and "/SILENT" in _a and "/CLOSEAPPLICATIONS" in _a and "/LOG=C:/t/u.log" in _a, _a)
+check("/RESTARTAPPLICATIONS" not in _a and "/VERYSILENT" not in _a, "falsche Schalter (VERYSILENT würde den Fortschritt verstecken)")
+check(_upd.installer_args("S.exe")[-1] != "/LOG=None", "ohne Protokoll kein /LOG")
 check("fonts" in wf and "presets" in wf, "Workflow packt fonts/presets nicht ein")
 print("OK  Workflow und Installer")
 

@@ -88,9 +88,20 @@ def download(info: UpdateInfo, on_progress: Callable[[float], None] | None = Non
     return target
 
 
+def installer_args(path: Path | str, log: Path | str | None = None) -> list[str]:
+    """Aufruf der Setup.exe für ein Update: still (nur Fortschrittsbalken), schließt ein noch laufendes Programm und startet
+    es nach der Installation von selbst wieder (Eintrag im [Run]-Teil von installer.iss, nur im stillen Modus).
+    Das Protokoll hilft bei der Fehlersuche, falls der Neustart einmal ausbleibt."""
+    args = [str(path), "/SILENT", "/CLOSEAPPLICATIONS", "/SP-"]
+    if log:
+        args.append(f"/LOG={log}")
+    return args
+
+
 def launch_installer(path: Path) -> None:
     """Startet die Setup.exe (Windows). Das Programm sollte danach beendet werden."""
     if os.name != "nt":
         raise RuntimeError("Automatisches Installieren geht nur unter Windows.")
-    subprocess.Popen([str(path), "/SILENT", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS"],
-                     close_fds=True)
+    import tempfile
+    log = Path(tempfile.gettempdir()) / "FATE-VIDEOSCHNITT-Update.log"
+    subprocess.Popen(installer_args(path, log), close_fds=True)

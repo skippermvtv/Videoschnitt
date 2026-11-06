@@ -72,7 +72,7 @@ Python 3.12+ und Inno Setup 6 installieren, dann `build.bat` doppelklicken.
 
 ## Oberfläche und Live-Vorschau (ab 1.4)
 
-- **Oben links** die Reiter: *Medien* (Raster mit Vorschaubildern, Import, Suche), *Format*, *Bild*, *Effekte*, *Text*, *Clip*, *Ton*, *Bild-in-Bild*, *Untertitel*, *Bewegung*. Rechts daneben der Knopf **EXPORT**.
+- **Oben links** die Reiter: *Medien* (Raster mit Vorschaubildern, Import, Suche), *Format*, *Bild*, *Effekte*, *Titel*, *Übergänge*, *Text*, *Clip*, *Ton*, *Bild-in-Bild*, *Split*, *Untertitel*, *Bewegung*. Rechts daneben der Knopf **EXPORT**.
 - **Oben rechts** die Vorschau mit Zeitcode, Suchleiste über das ganze Projekt und den Knöpfen Anfang / Abspielen / Ende.
 - **Unten** die Timeline mit Werkzeugleiste und Zoomregler.
 - **● Live**: Änderungen sind nach kurzer Zeit im Player zu sehen. Das Programm rechnet dafür im Hintergrund einen kurzen Abschnitt (Einstellung `live_len`, Standard 6 s) am Abspielkopf in kleiner Auflösung. Während es rechnet, steht neben dem Knopf ein Hinweis.
@@ -84,6 +84,16 @@ Python 3.12+ und Inno Setup 6 installieren, dann `build.bat` doppelklicken.
 - **Objekt verfolgen:** Rahmen über das Objekt legen, „Objekt verfolgen“ klicken (Block höchstens 30 s). Rahmen später verschieben entfernt den Pfad; „Pfad löschen“ ebenfalls.
 - **Stabilisieren:** Reiter *Clip*, Regler „Stabilisieren“. Die Analyse wird einmal pro Clip-Ausschnitt gerechnet und im Datenordner (`stab`) gespeichert. Braucht ein FFmpeg mit `libvidstab` (im mitgelieferten enthalten), sonst wird `deshake` benutzt.
 - **Timeline:** Medien aus dem Raster hineinziehen; Spurkopf: **M** = Tonspur stumm, **S** = Spur sperren (nur für diese Sitzung); Vollbild-Vorschau per Knopf oder Doppelklick.
+
+## Titel, Übergänge, Split, Tempo, Ton (ab 1.4.2, erweitert in 1.4.3)
+
+- **Titel:** Reiter *Titel*, Vorlage doppelklicken oder auf die Timeline ziehen; bearbeiten im Reiter *Text*. Vorlagen: `presets/titles.json`.
+- **Übergänge:** Reiter *Übergänge* (Vorschaubilder entstehen beim ersten Start im Hintergrund). Doppelklick = nach dem gewählten Clip, oder auf eine Schnittstelle ziehen.
+- **Split Screen:** Mehrere Videos als Bild-in-Bild zur selben Zeit auf V2 legen (oder Medien markieren und „Gewählte Medien als Split einfügen“), Layout wählen, „Anwenden“. Technisch bekommt jeder Block ein Feld (`cell`); der Export schneidet das Bild auf das Feld zu.
+- **Geschwindigkeitskurve:** Reiter *Clip*. Punkte als „Position in %:Tempo“, z. B. `0:1, 50:0.25, 100:1`. Der Clip wird in Abschnitte geteilt (`core/speedramp.py`). Seit 1.4.3 lässt sich die Kurve auch zeichnen (`ui/curveeditor.py`, Rechenkern `core/rampgraph.py`).
+- **1.4.3:** Neustart nach Update, Ziel-Lautheit (−14/−16/−23 LUFS), Ton von Bild-in-Bild, „Mehrere Formate exportieren“ (`core/multiexport.py`), Split mit Trennlinie/Ausschnitt/Hauptvideo im Feld, Pipette für den Chroma-Key (`core/colorpick.py`, `ui/pickdialog.py`).
+- **Ton verbessern:** „Rauschen entfernen“ und „Sprache klarer“ (`core/audiofix.py`).
+- **Oberfläche merken:** Einstellungen `ui_locked`, `ui_zoom`, `ui_hsplit`, `ui_vsplit`, `ui_tab` in `settings.json`.
 
 ## Effekt-Spur (ab 1.2)
 
@@ -172,6 +182,10 @@ Clip anklicken → Registerkarte **Clip** → „Übergang zum nächsten Clip“
 - Die Vorschau im Player spielt nur die Quelldatei; das Ergebnis mit Musik hörst du in „Vorschau mit Effekten“ oder im Export.
 
 ## Bekannte Grenzen
+
+- Geschwindigkeitskurve: Das Tempo ändert sich in Stufen (bis 20 Abschnitte je Clip); der Ton folgt in denselben Stufen. Nicht für Standbilder und rückwärts abgespielte Clips.
+- Split Screen: Felder gibt es nur für Bild-in-Bild-Blöcke; das Hauptvideo füllt kein Feld, sondern liegt darunter.
+- „Rauschen entfernen“ ist am besten bei gleichmäßigem Rauschen (Rauschen der Kamera, Rauschen aus Lüftern). Wechselnde Geräusche bleiben.
 
 - Nur eine Bild-in-Bild-Spur (V2); Overlay-Ton wird nicht gemischt.
 - Chroma-Key gibt es nur für Bild-in-Bild (V2), nicht für die Hauptspur. Die Schlüsselfarbe wählst du aus Grün, Blau oder dem Farbdialog (keine Pipette im Bild).

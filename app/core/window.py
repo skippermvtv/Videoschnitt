@@ -131,7 +131,7 @@ def project_window(p: Project, t0: float, length: float) -> tuple[Project, float
 
     out = Project(format_id=p.format_id, export_id=p.export_id, layout=p.layout, look_id=p.look_id,
                   track_volume=dict(p.track_volume), track_mute=dict(p.track_mute), ducking=p.ducking,
-                  ducking_amount=p.ducking_amount, normalize=p.normalize,
+                  ducking_amount=p.ducking_amount, normalize=p.normalize, lufs_target=p.lufs_target,
                   fade_in=p.fade_in if w0 <= EPS else 0.0,
                   fade_out=p.fade_out if w1 >= total - EPS else 0.0,
                   sub_style=copy.deepcopy(p.sub_style))

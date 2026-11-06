@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QThread, Signal
 
-from ..core import exporter, frames, grade, stabilize, thumbs, tracker, updater, waveform
+from ..core import exporter, frames, grade, stabilize, thumbs, tracker, transthumbs, updater, waveform
 
 
 class ExportWorker(QThread):
@@ -201,3 +201,19 @@ class StabilizeWorker(QThread):
             self.done.emit("")
         except Exception as exc:  # noqa: BLE001
             self.done.emit(str(exc))
+
+
+class TransThumbWorker(QThread):
+    """Erzeugt die Vorschaubilder der Übergangsliste nacheinander."""
+    done = Signal(str, str, str)  # (Übergangs-ID, PNG-Pfad, Fehler)
+
+    def __init__(self, items: list, parent=None):
+        super().__init__(parent)
+        self._items = items            # [(id, xfade)]
+
+    def run(self) -> None:
+        for tid, name in self._items:
+            try:
+                self.done.emit(tid, transthumbs.make_thumb(tid, name), "")
+            except Exception as exc:  # noqa: BLE001
+                self.done.emit(tid, "", str(exc))

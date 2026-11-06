@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from app.ui import main_window as mw  # noqa: E402
 from app.ui.main_window import MainWindow  # noqa: E402
 from app.paths import find_binary  # noqa: E402
 from app.ui.theme import STYLE  # noqa: E402
@@ -58,12 +59,12 @@ def main() -> int:
     win.cmb_format.setCurrentIndex(win.cmb_format.findData("tiktok"))
     assert win.project.format_id == "tiktok"
 
-    win.tabs.setCurrentIndex(4)
+    win.tabs.setCurrentIndex(mw.TAB_TEXT)
     win.add_text()
     assert len(win.project.texts) == 1
 
     # Bildkorrektur (Tab "Bild") mit einem echten Testvideo
-    assert win.tabs.count() == 10 and win.tabs.tabText(0) == "Medien" and win.tabs.tabText(2) == "Bild" and win.tabs.tabText(6) == "Ton" and win.tabs.tabText(7) == "Bild-in-Bild" and win.tabs.tabText(8) == "Untertitel" and win.tabs.tabText(9) == "Bewegung"
+    assert win.tabs.count() == 13 and [win.tabs.tabText(i) for i in range(13)] == ["Medien", "Format", "Bild", "Effekte", "Titel", "Übergänge", "Text", "Clip", "Ton", "Bild-in-Bild", "Split", "Untertitel", "Bewegung"]
     vid = str(Path(tempfile.mkdtemp()) / "t.mp4")
     subprocess.run([find_binary("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=3",
                     "-f", "lavfi", "-i", "sine=frequency=300:duration=3", "-c:v", "libx264", "-c:a", "aac", "-shortest", vid], check=True)
@@ -76,7 +77,7 @@ def main() -> int:
     assert win.project.clips[0].grade.get("temperature") == 40, win.project.clips[0].grade
     win._grade_sliders["brightness"].setValue(25)
     assert win.project.clips[0].grade.get("brightness") == 25
-    win.tabs.setCurrentIndex(2)
+    win.tabs.setCurrentIndex(mw.TAB_GRADE)
     win._grade_timer.stop()
     win._update_grade_preview()
     for _ in range(120):
@@ -165,7 +166,7 @@ def main() -> int:
     win.detach_selected_audio()
     assert win.project.clips[0].audio_detached and win.asel == 0 and win.aud_group.isEnabled()
     win.add_audio_files([wav], track=2)
-    assert len(win.project.audio_clips) == 2 and win.tabs.currentIndex() == 6
+    assert len(win.project.audio_clips) == 2 and win.tabs.currentIndex() == mw.AUDIO_TAB
     win.aud_vol.setValue(50)
     win.aud_loop.setChecked(True)
     win.aud_fin.setValue(0.5)
@@ -181,7 +182,7 @@ def main() -> int:
         if wav in win._waves:
             break
     assert wav in win._waves, "Wellenform fehlt"
-    win.tabs.setCurrentIndex(6)
+    win.tabs.setCurrentIndex(mw.AUDIO_TAB)
     app.processEvents()
     win.timeline.update()
     app.processEvents()
@@ -192,7 +193,7 @@ def main() -> int:
     win.import_files([png])
     assert win.media[png].is_image
     win.add_overlay_files([png])
-    assert len(win.project.overlays) == 1 and win.osel == 0 and win.tabs.currentIndex() == 7 and win.ov_group.isEnabled()
+    assert len(win.project.overlays) == 1 and win.osel == 0 and win.tabs.currentIndex() == mw.OVERLAY_TAB and win.ov_group.isEnabled()
     win.ov_size.setValue(40.0)
     win.ov_corner.setCurrentIndex(win.ov_corner.findData("bl"))
     o = win.project.overlays[0]
@@ -226,8 +227,8 @@ def main() -> int:
     win.sub_anim.setCurrentIndex(win.sub_anim.findData("fade"))
     win.sub_box.setChecked(True)
     assert win.project.sub_style.anim == "fade" and win.project.sub_style.box
-    win.tabs.setCurrentIndex(8)
-    win.tabs.setCurrentIndex(4)
+    win.tabs.setCurrentIndex(mw.SUBTITLE_TAB)
+    win.tabs.setCurrentIndex(mw.TAB_TEXT)
     win.text_list.setCurrentRow(0)
     win.text_anim.setCurrentIndex(win.text_anim.findData("typewriter"))
     assert win.project.texts[0].anim == "typewriter"
@@ -237,7 +238,7 @@ def main() -> int:
 
     # Bewegung und Transform
     win._select_clip(0)
-    win.tabs.setCurrentIndex(9)
+    win.tabs.setCurrentIndex(mw.MOTION_TAB)
     assert win.motion_body.isEnabled()
     win.cmb_motion.setCurrentIndex(win.cmb_motion.findData("zoom_in"))
     c0 = win.project.clips[0]
@@ -303,7 +304,7 @@ def main() -> int:
     # 1.2: Effekt-Spur (FX): Blöcke anlegen, auswählen, ändern, ablegen, löschen; Timeline wirklich zeichnen
     from PySide6.QtCore import QPointF, Qt
     from PySide6.QtGui import QDropEvent
-    assert win.tabs.tabText(3) == "Effekte"
+    assert win.tabs.tabText(mw.FX_TAB) == "Effekte"
     n0 = len(win.project.effects)
     win.add_effect_block("vhs", 0.5)
     assert len(win.project.effects) == n0 + 1 and win.fsel == n0 and win.fx_box.isEnabled() and win.btn_fx_del.isEnabled()
@@ -365,7 +366,7 @@ def main() -> int:
 
 
     # 1.4: Maske im Effekt-Kasten
-    win.tabs.setCurrentIndex(3)
+    win.tabs.setCurrentIndex(mw.FX_TAB)
     win.add_effect_block("mask_mosaic", 0.0)
     assert win.fx_mask_box.isVisibleTo(win), "Maskenfelder fehlen bei Masken-Effekt"
     win.mask_w.setValue(44.0)
@@ -434,7 +435,7 @@ def main() -> int:
     from PySide6.QtCore import QPointF as _QPF
     from PySide6.QtGui import QDropEvent as _QDE
     from app.ui.timeline import MEDIA_MIME
-    win.tabs.setCurrentIndex(0)
+    win.tabs.setCurrentIndex(mw.TAB_MEDIA)
     item = win.media_list.item(0)
     md = win.media_list.mimeData([item])
     assert md.text().startswith(MEDIA_MIME) and md.text().split(":", 1)[1] == item.data(Qt.ItemDataRole.UserRole)
@@ -459,7 +460,7 @@ def main() -> int:
 
     # 1.4: neue Oberfläche – Medienraster mit Vorschaubildern, Suche, Suchleiste über die Projektzeit, Zoom, Zeitcode
     from PySide6.QtWidgets import QToolButton
-    win.tabs.setCurrentIndex(0)
+    win.tabs.setCurrentIndex(mw.TAB_MEDIA)
     assert win.media_list.count() >= 2 and not win.media_hint.isVisibleTo(win)
     for _ in range(120):                                   # Vorschaubilder entstehen im Hintergrund
         app.processEvents()
@@ -487,6 +488,126 @@ def main() -> int:
     win.resize(1100, 700)
     app.processEvents()
     win.grab()                                             # zeichnet die ganze neue Oberfläche (Reiterleiste, Raster, Leisten)
+
+    # 1.4.2: Titel-Reiter, Übergänge-Reiter (Vorschaubilder, Ablegen), Split, Ton verbessern, Oberfläche merken
+    from app.ui.timeline import TITLE_MIME, TRANS_MIME
+    win.tabs.setCurrentIndex(mw.TAB_TITLES)
+    assert win.title_list.count() >= 10, "Titel-Vorlagen fehlen"
+    n_tx = len(win.project.texts)
+    win.add_title("lower_third", 1.0)
+    assert len(win.project.texts) == n_tx + 1 and win.tabs.currentIndex() == mw.TAB_TEXT
+    md = win.title_list.mimeData([win.title_list.item(0)])
+    assert md.text().startswith(TITLE_MIME), md.text()
+    ev = _QDE(_QPF(win.timeline._x(0.5), win.timeline._lane_y(0) + 10), Qt.DropAction.CopyAction, md,
+              Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    win.timeline.dropEvent(ev)
+    assert len(win.project.texts) == n_tx + 2, "Titel ablegen"
+    win.tabs.setCurrentIndex(mw.TAB_TRANS)
+    assert win.trans_list.count() >= 10, "Übergänge fehlen"
+    win._start_trans_thumbs()
+    for _ in range(400):                                   # Vorschaubilder der Übergänge entstehen im Hintergrund
+        app.processEvents()
+        time.sleep(0.05)
+        if all(not win.trans_list.item(i).icon().isNull() for i in range(win.trans_list.count())):
+            break
+    assert any(not win.trans_list.item(i).icon().isNull() for i in range(win.trans_list.count())), "Übergangs-Vorschaubilder fehlen"
+    while len(win.project.clips) < 3:
+        win._add_to_timeline(win.media_list.item(0).data(Qt.ItemDataRole.UserRole))
+    win.apply_transition("fade", 0)
+    assert win.project.clips[0].transition == "fade"
+    win.apply_transition("", 0)
+    assert win.project.clips[0].transition == ""
+    md = win.trans_list.mimeData([win.trans_list.item(1)])
+    assert md.text().startswith(TRANS_MIME), md.text()
+    gap = win.project.clip_start(1)
+    ev = _QDE(_QPF(win.timeline._x(gap), win.timeline._lane_y(0) + 10), Qt.DropAction.CopyAction, md,
+              Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    win.timeline.dropEvent(ev)
+    assert win.project.clips[0].transition == win.trans_list.item(1).data(Qt.ItemDataRole.UserRole), "Übergang ablegen"
+    win.apply_transition("", all_clips=True)
+    # Split: zwei markierte Medien einfügen
+    win.tabs.setCurrentIndex(mw.TAB_SPLIT)
+    win.media_list.selectAll()
+    n_ov = len(win.project.overlays)
+    used = win.split_from_media("2h")
+    assert len(used) == 2 and len(win.project.overlays) == n_ov + 2 and all(win.project.overlays[i].cell for i in used), used
+    assert not win.ov_x.isEnabled() and win.ov_split_note.isVisibleTo(win), "Split-Block: Position sperren"
+    win.grab()
+    win.clear_split()
+    assert not any(o.cell for o in win.project.overlays) and win.ov_x.isEnabled()
+    # Ton verbessern
+    win._select_clip(0)
+    win.clip_dn.setValue(30)
+    win.clip_vc.setValue(20)
+    assert win.project.clips[0].denoise == 30 and win.project.clips[0].voice == 20 and win.clip_dn_label.text() == "30 %"
+    win.clip_dn.setValue(0)
+    win.clip_vc.setValue(0)
+    assert win.clip_dn_label.text() == "aus"
+    # Pipette (Dialog mit Standbild, Klick in die Mitte)
+    from PySide6.QtTest import QTest
+    from app.core import frames as _frames
+    from app.ui.pickdialog import PickDialog
+    _png = str(Path(tempfile.mkdtemp()) / "pick.png")
+    _frames.extract_frame(win.project.clips[0].path, _png, 0.5)
+    dlg = PickDialog(_png)
+    dlg.show()
+    app.processEvents()
+    assert not dlg.buttons.button(dlg.buttons.StandardButton.Ok).isEnabled(), "OK erst nach einer Wahl"
+    QTest.mouseClick(dlg.canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, dlg.canvas.rect().center())
+    app.processEvents()
+    assert dlg.color.startswith("#") and len(dlg.color) == 7, dlg.color
+    assert dlg.buttons.button(dlg.buttons.StandardButton.Ok).isEnabled()
+    dlg.close()
+    assert win.ov_key_eye.text() == "Pipette …"
+    # Mehrfach-Export: Menüeintrag vorhanden
+    assert "Mehrere Formate" in win.act_export_multi.text()
+    # Geschwindigkeitskurve
+    win._select_clip(0)
+    n_c = len(win.project.clips)
+    win.ramp_preset.setCurrentIndex(win.ramp_preset.findData("slow_mid"))
+    assert win.ramp_text.text().startswith("0:1") and "Länge" in win.ramp_info.text(), (win.ramp_text.text(), win.ramp_info.text())
+    used = win.apply_speed_ramp()
+    assert len(used) >= 5 and len(win.project.clips) == n_c - 1 + len(used), (len(used), len(win.project.clips))
+    win.ramp_text.setText("0:1, 999:1")
+    assert win.apply_speed_ramp() == [] and "999" in win.ramp_info.text()
+    # Kurven-Editor: Vorlage erscheint in der Zeichenfläche, Ziehen/Doppelklick/Rechtsklick ändern das Textfeld
+    from PySide6.QtCore import QPoint as _QP, Qt as _Qt
+    from PySide6.QtTest import QTest as _QT
+    from app.core import rampgraph as _rg
+    cur = win.ramp_curve
+    cur.resize(400, 160)
+    win.ramp_text.setText("0:1, 50:0.25, 100:1")
+    assert len(cur.points()) == 3, cur.points()
+    mx, my = _rg.to_px(cur.points()[1], 400, 160)
+    _QT.mousePress(cur, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, _QP(int(mx), int(my)))
+    ux, uy = _rg.to_px([70, 2.0], 400, 160)
+    _QT.mouseMove(cur, _QP(int(ux), int(uy)))
+    _QT.mouseRelease(cur, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, _QP(int(ux), int(uy)))
+    pts_now = _rg.rounded(cur.points())
+    assert 66 < pts_now[1][0] < 74 and 1.7 < pts_now[1][1] < 2.4, pts_now
+    assert win.ramp_text.text().startswith("0:1, ") and len(win.ramp_text.text().split(",")) == 3, win.ramp_text.text()
+    ax, ay = _rg.to_px([20, 0.5], 400, 160)
+    _QT.mouseDClick(cur, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, _QP(int(ax), int(ay)))
+    assert len(cur.points()) == 4 and len(win.ramp_text.text().split(",")) == 4, (cur.points(), win.ramp_text.text())
+    ax, ay = _rg.to_px(cur.points()[1], 400, 160)
+    _QT.mouseClick(cur, _Qt.MouseButton.RightButton, _Qt.KeyboardModifier.NoModifier, _QP(int(ax), int(ay)))
+    assert len(cur.points()) == 3 and len(win.ramp_text.text().split(",")) == 3, (cur.points(), win.ramp_text.text())
+    cur.grab()                                  # Zeichnen darf nicht abstürzen
+    # Oberfläche merken: Werte in die Einstellungen schreiben, wiederherstellen, zurücksetzen
+    from app.core import settings as _st
+    win.timeline.set_locked([2])
+    win.tabs.setCurrentIndex(mw.TAB_SPLIT)
+    win._save_ui()
+    saved = _st.load()
+    assert saved["ui_locked"] == [2] and saved["ui_tab"] == mw.TAB_SPLIT and len(saved["ui_hsplit"]) == 2, saved
+    win.timeline.set_locked([])
+    win.tabs.setCurrentIndex(mw.TAB_MEDIA)
+    win._restore_ui()
+    assert win.timeline.locked_lanes() == [2] and win.tabs.currentIndex() == mw.TAB_SPLIT
+    win.timeline.set_locked([])
+    _st.save({"ui_locked": [], "ui_tab": 0, "ui_zoom": 1.0, "ui_hsplit": [], "ui_vsplit": []})
+    win.tabs.setCurrentIndex(mw.TAB_MEDIA)
+    no_slot_errors("1.4.2")
 
     no_slot_errors("Ende des Tests")
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "ui_smoke.png")

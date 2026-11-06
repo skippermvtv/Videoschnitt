@@ -74,6 +74,17 @@ jobs:
           T tests/test_mask_edit.py $env:RUNNER_TEMP
           T tests/test_tracker.py $env:RUNNER_TEMP
           T tests/test_stabilize.py $env:RUNNER_TEMP
+          T tests/test_titles.py $env:RUNNER_TEMP
+          T tests/test_settings_ui.py $env:RUNNER_TEMP
+          T tests/test_audiofix.py $env:RUNNER_TEMP
+          T tests/test_split.py $env:RUNNER_TEMP
+          T tests/test_speedramp.py $env:RUNNER_TEMP
+          T tests/test_ramp_audio.py $env:RUNNER_TEMP
+          T tests/test_rampgraph.py
+          T tests/test_loudness.py $env:RUNNER_TEMP
+          T tests/test_overlay_audio.py $env:RUNNER_TEMP
+          T tests/test_multiexport.py $env:RUNNER_TEMP
+          T tests/test_colorpick.py
           T tests/test_audio.py $env:RUNNER_TEMP
           T tests/timeline_logic_check.py
           T tests/test_history.py

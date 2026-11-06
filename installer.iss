@@ -27,8 +27,10 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 UninstallDisplayIcon={app}\{#MyAppExe}
+; Läuft das Programm noch, wird es geschlossen. Neu gestartet wird ausschließlich über die [Run]-Einträge unten
+; (sonst könnten bei einem Update zwei Programme gleichzeitig starten).
 CloseApplications=yes
-RestartApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
@@ -53,3 +55,5 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: deskto
 
 [Run]
 Filename: "{app}\{#MyAppExe}"; Description: "{#MyAppName} jetzt starten"; Flags: nowait postinstall skipifsilent
+; Update aus dem Programm heraus (stiller Modus): das Programm startet nach der Installation von selbst wieder
+Filename: "{app}\{#MyAppExe}"; Flags: nowait runasoriginaluser skipifnotsilent

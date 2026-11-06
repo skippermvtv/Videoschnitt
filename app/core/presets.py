@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ..paths import bundle_dir, user_presets_dir
 
-KINDS = ("formats", "exports", "looks", "grades", "transitions", "motions")
+KINDS = ("formats", "exports", "looks", "grades", "transitions", "motions", "titles")
 
 
 def _read(path: Path) -> list:

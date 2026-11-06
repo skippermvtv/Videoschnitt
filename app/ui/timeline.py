@@ -27,6 +27,8 @@ FX_ROW_H = 18.0
 FX_MAX_ROWS = 3
 FX_MIME = "fate-effect:"
 MEDIA_MIME = "fate-media:"
+TITLE_MIME = "fate-title:"
+TRANS_MIME = "fate-trans:"
 OV_COLOR = "#b8672f"
 LABEL_W = 108.0
 RULER_H = 28.0
@@ -54,6 +56,8 @@ class Timeline(QWidget):
     seek_requested = Signal(float)         # Projektzeit in Sekunden
     media_dropped = Signal(list, int)      # (Dateipfade, Einfügeposition) – aus dem Medienraster abgelegt
     lane_mute_toggled = Signal(int)        # Spur 1…3: Stumm-Schalter im Spurkopf angeklickt
+    title_dropped = Signal(str, float)     # (Vorlagen-ID, Projektzeit) – aus der Titelliste abgelegt
+    transition_dropped = Signal(str, int)  # (Übergangs-ID, Nummer des Clips, nach dem der Übergang liegt)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -166,6 +170,13 @@ class Timeline(QWidget):
 
     def is_locked(self, lane: int) -> bool:
         return lane in self._locked
+
+    def locked_lanes(self) -> list[int]:
+        return sorted(self._locked)
+
+    def set_locked(self, lanes) -> None:
+        self._locked = {int(x) for x in lanes if 0 <= int(x) < len(LANE_LABELS)}
+        self.update()
 
     def _in_content(self, x: float) -> bool:
         return 12.0 + LABEL_W <= x <= 12.0 + LABEL_W + self._avail()
@@ -683,6 +694,25 @@ class Timeline(QWidget):
             return []
         return [q for q in text[len(MEDIA_MIME):].split("\n") if q] if text.startswith(MEDIA_MIME) else []
 
+    @staticmethod
+    def _mime_tag(mime, tag: str) -> str:
+        try:
+            text = mime.text() if mime.hasText() else ""
+        except Exception:  # noqa: BLE001
+            return ""
+        return text[len(tag):] if text.startswith(tag) else ""
+
+    def trans_drop_index(self, t: float) -> int:
+        """Nach welchem Clip liegt die Grenze, die der Zeit t am nächsten ist? −1, wenn es keine Grenze gibt."""
+        if self._project is None or len(self._project.clips) < 2:
+            return -1
+        best, dist = -1, 1e18
+        for i in range(len(self._project.clips) - 1):
+            b = self._project.clip_start(i) + self._project.clips[i].length
+            if abs(b - t) < dist:
+                best, dist = i, abs(b - t)
+        return best
+
     def media_drop_index(self, t: float) -> int:
         """Einfügeposition in der Clip-Reihenfolge für ein Ablegen bei der Zeit t (vor/nach der Mitte eines Clips)."""
         if self._project is None:
@@ -713,7 +743,8 @@ class Timeline(QWidget):
             event.ignore()
 
     def dragEnterEvent(self, event):
-        if self._mime_effect(event.mimeData()) or self._mime_media(event.mimeData()):
+        md = event.mimeData()
+        if self._mime_effect(md) or self._mime_media(md) or self._mime_tag(md, TITLE_MIME) or self._mime_tag(md, TRANS_MIME):
             event.acceptProposedAction()
         else:
             self._forward_to_window("dragEnterEvent", event)
@@ -724,6 +755,22 @@ class Timeline(QWidget):
                 event.ignore()
                 return
             self._drop_t = self._media_marker(self.media_drop_index(self._t_at(event.position().x())))
+            self.update()
+            event.acceptProposedAction()
+            return
+        if self._mime_tag(event.mimeData(), TITLE_MIME):
+            self._drop_t = max(0.0, self._t_at(event.position().x())) if self._project is not None else -1.0
+            self.update()
+            event.acceptProposedAction() if self._project is not None else event.ignore()
+            return
+        if self._mime_tag(event.mimeData(), TRANS_MIME):
+            k = self.trans_drop_index(self._t_at(event.position().x()))
+            if k < 0:
+                self._drop_t = -1.0
+                self.update()
+                event.ignore()
+                return
+            self._drop_t = self._project.clip_start(k) + self._project.clips[k].length
             self.update()
             event.acceptProposedAction()
             return
@@ -744,6 +791,25 @@ class Timeline(QWidget):
         self.update()
 
     def dropEvent(self, event):
+        tid = self._mime_tag(event.mimeData(), TITLE_MIME)
+        if tid:
+            t = max(0.0, self._t_at(event.position().x()))
+            self._drop_t = -1.0
+            self.update()
+            event.acceptProposedAction()
+            self.title_dropped.emit(tid, t)
+            return
+        xid = self._mime_tag(event.mimeData(), TRANS_MIME)
+        if xid:
+            k = self.trans_drop_index(self._t_at(event.position().x()))
+            self._drop_t = -1.0
+            self.update()
+            if k < 0:
+                event.ignore()
+                return
+            event.acceptProposedAction()
+            self.transition_dropped.emit(xid, k)
+            return
         files = self._mime_media(event.mimeData())
         if files:
             idx = self.media_drop_index(self._t_at(event.position().x()))

@@ -199,6 +199,29 @@ win._run_job = fail_then_ok
 exporter.hw_encoder = lambda: None
 win._start_export(str(tmp / "hw_out.mp4"), False)
 print("Vorschau/Export ok")
+# 1.4.3: mehrere Formate nacheinander (Ersatz-Job statt FFmpeg)
+(tmp / "multi").mkdir(exist_ok=True)
+seen = []
+def multi_job(cmd, total, title, on_done):
+    seen.append((title, cmd[-1]))
+    on_done("")
+win._run_job = multi_job
+win._open_folder = lambda *_: None
+exporter.hw_encoder = lambda: None
+assert win.run_multi_export(["youtube_16_9", "shorts", "insta_square"], str(tmp / "multi"), "Film") is True
+assert [t.split(":")[0] for t, _ in seen] == ["Export 1/3", "Export 2/3", "Export 3/3"], seen
+assert all(o.endswith(".mp4") for _, o in seen) and len({o for _, o in seen}) == 3 and "shorts" in seen[1][1], seen
+assert win._multi_jobs == [] and len(win._multi_ok) == 3
+seen2 = []
+def multi_fail(cmd, total, title, on_done):
+    seen2.append(title)
+    on_done("boom" if len(seen2) == 2 else "")
+win._run_job = multi_fail
+assert win.run_multi_export(["youtube_16_9", "shorts", "insta_square"], str(tmp / "multi"), "Film2") is True
+assert len(seen2) == 2 and win._multi_jobs == [] and len(win._multi_ok) == 1, (seen2, win._multi_ok)
+assert win.run_multi_export([], str(tmp / "multi"), "x") is False
+assert win.run_multi_export(["shorts"], str(tmp / "gibt-es-nicht"), "x") is False
+print("Mehrfach-Export ok")
 # Hilfe-Fenster
 win._text_dialog("Kurzanleitung", html="<b>x</b>"); win._text_dialog("Lizenzen", plain="x")
 print("Hilfe ok")

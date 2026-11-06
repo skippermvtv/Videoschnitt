@@ -63,6 +63,7 @@ def init(self, parent=None):
     self.overlay_selected, self.overlay_edited = Sig(), Sig()
     self.fx_selected, self.fx_edited, self.effect_dropped = Sig(), Sig(), Sig()
     self.media_dropped, self.lane_mute_toggled = Sig(), Sig()
+    self.title_dropped, self.transition_dropped = Sig(), Sig()
 tl.Timeline.__init__ = init
 
 from app.core.project import AudioClip, Clip, OverlayClip, Project
@@ -256,4 +257,30 @@ t.mousePressEvent(Ev(t._x(a.start) + 30, t._lane_y(TR) + 10))
 assert len(t.audio_selected.calls) == n_sel + 1, "entsperrt wählt wieder aus"
 t.mousePressEvent(Ev(t._lane_y(0), t._lane_y(0) + 5))      # Klick im Kopf ohne Schalter: nichts passiert
 print("OK  Medien ablegen, Spurköpfe")
+# 1.4.2: Titel und Übergänge aus den Listen ablegen
+p.audio_clips = []
+t.set_project(p, 0, -1, -1, 0)
+assert t.trans_drop_index(9.0) == 0 and t.trans_drop_index(0.0) == 0 and t.trans_drop_index(19.0) == 0     # zwei Clips → nur eine Grenze
+e = DEv(t._x(4.0), yf, Mime(tl.TITLE_MIME + "lower_third")); t.dragEnterEvent(e); assert e.acc is True
+t.dragMoveEvent(e); assert e.acc is True and abs(t._drop_t - 4.0) < 0.05
+e = DEv(t._x(4.0), yf, Mime(tl.TITLE_MIME + "lower_third")); t.dropEvent(e)
+assert t.title_dropped.calls[-1][0] == "lower_third" and abs(t.title_dropped.calls[-1][1] - 4.0) < 0.05 and t._drop_t == -1.0
+e = DEv(t._x(9.0), yf, Mime(tl.TRANS_MIME + "fade")); t.dragEnterEvent(e); assert e.acc is True
+t.dragMoveEvent(e); assert e.acc is True and t._drop_t == 10.0
+e = DEv(t._x(9.0), yf, Mime(tl.TRANS_MIME + "fade")); t.dropEvent(e)
+assert t.transition_dropped.calls[-1] == ("fade", 0), t.transition_dropped.calls
+p1 = Project(); p1.clips = [Clip("a.mp4", 10.0)]
+t.set_project(p1, 0, -1, -1, 0)
+assert t.trans_drop_index(5.0) == -1
+e = DEv(t._x(5.0), yf, Mime(tl.TRANS_MIME + "fade")); t.dragMoveEvent(e); assert e.acc is False
+n_tr = len(t.transition_dropped.calls)
+e = DEv(t._x(5.0), yf, Mime(tl.TRANS_MIME + "fade")); t.dropEvent(e); assert e.acc is False and len(t.transition_dropped.calls) == n_tr
+print("OK  Titel und Übergänge ablegen")
+t.set_locked([3, 0, 99]) if False else None
+t._locked = set()
+t.set_locked([3, 0, 5, 3])
+assert t.locked_lanes() == [0, 3, 5] and t.is_locked(3) and not t.is_locked(1)
+t.set_locked([])
+assert t.locked_lanes() == []
+print("OK  Spursperren setzen/lesen")
 print("Timeline-Mauslogik OK")

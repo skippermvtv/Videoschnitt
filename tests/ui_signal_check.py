@@ -566,4 +566,133 @@ assert len(win.project.clips) == _n + 3 and win.sel == _n + 2
 win._on_lane_mute(2)
 no_errors("1.4.1: Medien ablegen / Spurkopf")
 print("OK  1.4.1: Medien ablegen, Spurkopf")
+# 1.4.2: Titel-Vorlagen und Übergänge
+_nt = len(win.project.texts)
+win.add_title("lower_third", 1.5)
+assert len(win.project.texts) == _nt + 1 and win.project.texts[-1].start == 1.5 and win.project.texts[-1].box, win.project.texts[-1]
+win.add_title("metal", 3.0)
+assert "FateMetal" in win.project.texts[-1].font and win.project.texts[-1].start == 3.0
+win.add_title("gibt-es-nicht")
+assert len(win.project.texts) == _nt + 2, "unbekannte Vorlage darf nichts anlegen"
+win._on_title_dropped("quote", 2.0)
+assert len(win.project.texts) == _nt + 3 and win.project.texts[-1].start == 2.0
+win.project.texts = win.project.texts[:_nt]
+win._on_media_dropped([_vid, _vid], 0)
+_cl = win.project.clips
+assert len(_cl) >= 3
+win.trans_dur.setValue(0.5)
+win.apply_transition("fade", 0)
+assert _cl[0].transition == "fade" and abs(_cl[0].transition_dur - 0.5) < 1e-9, (_cl[0].transition, _cl[0].transition_dur)
+win.apply_transition("wipeleft", None, all_clips=True)
+assert all(c.transition == "wipeleft" for c in _cl[:-1]) and _cl[-1].transition == "", [c.transition for c in _cl]
+win.apply_transition("", 1)
+assert _cl[1].transition == "" and _cl[0].transition == "wipeleft"
+win.apply_transition("fade", len(_cl) - 1)
+assert _cl[-1].transition == "", "der letzte Clip hat keinen Übergang"
+win._on_transition_dropped("slideleft", 1)
+assert _cl[1].transition == "slideleft"
+win._on_trans_thumb("fade", "/gibt/es/nicht.png", "")
+win._on_trans_thumb("fade", "", "Fehler")
+for _c in _cl:
+    _c.transition = ""
+no_errors("1.4.2: Titel, Übergänge")
+print("OK  1.4.2: Titel-Vorlagen, Übergänge")
+# 1.4.2: Ton verbessern (Regler → Clip / Audioblock)
+win._select_clip(0)
+win.clip_dn.setValue(40)
+win.clip_vc.setValue(25)
+win._on_clip_field()
+assert win.project.clips[0].denoise == 40 and win.project.clips[0].voice == 25, (win.project.clips[0].denoise, win.project.clips[0].voice)
+win.project.clips[0].denoise = win.project.clips[0].voice = 0
+from app.core.project import AudioClip  # noqa: E402
+_ac = AudioClip(_vid, 5.0, track=1)
+win.project.audio_clips = [_ac]
+win._select_audio(0)
+win.aud_dn.setValue(60)
+win.aud_vc.setValue(30)
+win._on_audio_field()
+assert _ac.denoise == 60 and _ac.voice == 30, (_ac.denoise, _ac.voice)
+win.project.audio_clips = []
+no_errors("1.4.2: Ton verbessern")
+print("OK  1.4.2: Ton verbessern")
+# 1.4.2: Split Screen
+from app.core.project import OverlayClip  # noqa: E402
+win.project.overlays = [OverlayClip(_vid, 5.0, start=0.0), OverlayClip(_vid, 5.0, start=1.0)]
+win.osel = 0
+win.split_layout.setCurrentIndex(0)
+assert win.apply_split("4") == [], "vier Felder mit zwei Blöcken"
+assert not any(o.cell for o in win.project.overlays)
+assert "braucht 4" in win.split_info.text() or "4" in win.split_info.text(), win.split_info.text()
+assert win.apply_split("2h") == [0, 1] and win.project.overlays[0].cell == [0, 0, 50, 100] and win.project.overlays[1].cell == [50, 0, 50, 100]
+assert win.osel == 0
+win.clear_split()
+assert not any(o.cell for o in win.project.overlays)
+win.clear_split()
+assert "kein Split" in win.split_info.text()
+win.project.overlays = []
+assert win.split_from_media("2h") == [], "ohne markierte Medien"
+no_errors("1.4.2: Split Screen")
+print("OK  1.4.2: Split Screen")
+# 1.4.2: Geschwindigkeitskurve
+win.project.overlays = []
+win.project.clips = win.project.clips[:1]
+win._select_clip(0)
+_n0 = len(win.project.clips)
+win.ramp_text.setText("0:1, 50:0.25, 100:1")
+win._on_ramp_text()
+assert "Länge" in win.ramp_info.text(), win.ramp_info.text()
+_used = win.apply_speed_ramp()
+assert len(_used) >= 5 and len(win.project.clips) == _n0 - 1 + len(_used), (len(_used), len(win.project.clips))
+win.ramp_text.setText("0:1, 200:5")
+assert win.apply_speed_ramp() == [] and "200" in win.ramp_info.text(), win.ramp_info.text()
+win.ramp_text.setText("abc")
+assert win.apply_speed_ramp() == []
+win.sel = -1
+win.ramp_text.setText("0:1, 100:2")
+assert win.apply_speed_ramp() == []
+win.ramp_text.setText("")
+win._on_ramp_curve([[0, 1], [40, 0.3], [100, 1.5]])
+assert win.ramp_text.text() == "0:1, 40:0.3, 100:1.5", win.ramp_text.text()
+win.sel = 0
+win._on_ramp_text()
+assert "Länge" in win.ramp_info.text(), win.ramp_info.text()
+no_errors("1.4.2: Geschwindigkeitskurve")
+print("OK  1.4.2: Geschwindigkeitskurve")
+# 1.4.3: Ton von Bild-in-Bild, Ziel-Lautheit
+win.project.overlays = [OverlayClip(_vid, 5.0, start=0.0)]
+win.osel = 0
+win.ov_sound.setChecked(True)
+win.ov_volume.setValue(60.0)
+win._on_overlay_field()
+assert win.project.overlays[0].sound is True and win.project.overlays[0].volume == 60.0, (win.project.overlays[0].sound, win.project.overlays[0].volume)
+win.project.overlays = []
+win.mix_norm.setChecked(True)
+win.mix_lufs.setCurrentIndex(2)
+win._on_mix_field()
+assert win.project.normalize is True and win.project.lufs_target == -23.0, win.project.lufs_target
+win.project.normalize = False
+win.project.lufs_target = -14.0
+no_errors("1.4.3: Ton Bild-in-Bild, Lautheit")
+print("OK  1.4.3: Ton Bild-in-Bild, Ziel-Lautheit")
+# 1.4.3: Split mit Linie, Hauptvideo, Ausschnitt
+win.project.overlays = [OverlayClip(_vid, 5.0, start=0.0), OverlayClip(_vid, 5.0, start=1.0)]
+win.osel = 0
+win.split_gap.setValue(4.0)
+win.split_line.setCurrentIndex(1)
+win.split_main.setCurrentIndex(1)
+assert win.apply_split("3l") == [0, 1], "mit Hauptvideo reichen zwei Blöcke für drei Felder"
+_o = win.project.overlays
+assert _o[0].cell_gap == 4.0 and _o[0].cell_line == "#ffffff" and _o[0].main_cell == [0, 0, 50, 100] and _o[0].cell == [50, 0, 50, 50], (_o[0].cell_gap, _o[0].cell_line, _o[0].main_cell, _o[0].cell)
+win.osel = 1
+win.ov_cz.setValue(150.0)
+win.ov_cdx.setValue(-30.0)
+win._on_overlay_field()
+assert _o[1].cell_zoom == 150.0 and _o[1].cell_dx == -30.0
+win.clear_split()
+assert not any(o.cell or o.main_cell for o in win.project.overlays) and _o[1].cell_zoom == 100.0
+win.project.overlays = []
+win.split_main.setCurrentIndex(0)
+win.split_gap.setValue(0.0)
+no_errors("1.4.3: Split Zusätze")
+print("OK  1.4.3: Split Linie/Hauptvideo/Ausschnitt")
 print("Signal-Prüfung OK")
