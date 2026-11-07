@@ -38,6 +38,8 @@ TIPS = [
     "Übergänge: Im Reiter „Übergänge“ eine Vorlage doppelklicken (kommt nach dem gewählten Clip) oder auf die Schnittstelle zwischen zwei Clips ziehen. „Auf alle Clips“ setzt ihn überall.",
     "Split Screen: Mehrere Videos als Bild-in-Bild zur selben Zeit auf V2 legen, im Reiter „Split“ ein Layout wählen und „Anwenden“ klicken. Oder in der Medienliste Videos markieren und „Gewählte Medien als Split einfügen“.",
     "Geschwindigkeitskurve: Im Reiter „Clip“ eine Vorlage wählen (z. B. „Zeitlupe in der Mitte“) oder die Kurve zeichnen: Punkte ziehen (senkrecht = Tempo, waagerecht = Stelle im Clip), Doppelklick = neuer Punkt, Rechtsklick = Punkt entfernen. Eintippen geht auch (Position in %:Tempo). „Kurve anwenden“ teilt den Clip in Abschnitte. Strg+Z macht es rückgängig.",
+    "Tempokurve ändern: Abschnitt anklicken, die Kurve erscheint wieder; Punkte anpassen und „Kurve ersetzen“. „Kurve entfernen“ macht wieder einen Clip daraus. „Kurve speichern …“ legt eigene Kurven in der Vorlagenliste ab (★).",
+    "Nach dem Export zeigt das Programm die Lautheit der fertigen Datei (LUFS), damit du siehst, wie nah sie am Ziel liegt.",
     "Greenscreen im Hauptvideo: Im Reiter „Clip“ unter „Chroma-Key“ einschalten, Farbe wählen (Pipette zeigt ein Bild des Clips) und mit „Hintergrund wählen …“ ein Bild oder Video dahinterlegen; ohne Hintergrund ist es schwarz.",
     "Nach einem Update zeigt das Programm einmal, was sich geändert hat. Das Fenster lässt sich dort abschalten.",
     "Mehrere Formate auf einmal: „Datei → Mehrere Formate exportieren …“ (Strg+Umschalt+E), Formate ankreuzen, Ordner wählen – alle werden nacheinander exportiert.",

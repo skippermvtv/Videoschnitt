@@ -1,5 +1,11 @@
 # Änderungen
 
+## 1.4.5
+- **Lautheit nach dem Export gemessen**: Nach jedem Export zeigt das Programm die tatsächliche Lautheit der fertigen Datei an, z. B. „Lautheit: −13,2 LUFS (Ziel −14,0)“ (Statuszeile und Abschlussfenster; bei „Mehrere Formate“ einmal). Gemessen wird die Datei selbst (EBU R128), nicht geschätzt. Das Angleichen bleibt ein Durchgang und landet etwa 1 LU über dem Ziel; jetzt siehst du es.
+- **Eigene Tempokurven speichern**: Im Reiter „Clip“ die Kurve mit „Kurve speichern …“ unter einem Namen sichern. Sie erscheint in der Vorlagenliste mit ★ (bis zu 20, gleicher Name ersetzt), „Gespeicherte löschen“ entfernt sie.
+- **Tempokurve nachträglich ändern**: Die Abschnitte einer angewendeten Kurve merken sich Kurve, Grundtempo und Bewegung. Klickst du einen Abschnitt an, erscheint die Kurve wieder im Editor; „Kurve ersetzen“ berechnet die Abschnitte neu, „Kurve entfernen“ führt sie wieder zu einem Clip zusammen (Anfang, Ende, Tempo, Übergang und Bewegung wie vorher). Wurde ein Abschnitt verschoben, gekürzt oder gelöscht, erkennt das Programm das und behandelt den Abschnitt wie einen normalen Clip.
+- **Prüfungen**: Der Oberflächentest bricht nicht mehr beim ersten Fehler ab, sondern läuft alle Abschnitte durch und meldet am Ende alle Fehler zusammen (spart Durchläufe auf dem Build-Server). Neue Tests: `test_loudcheck.py`, `test_ramp_reapply.py`; erweiterte Tests für eigene Kurven.
+
 ## 1.4.4
 - **„Was ist neu“-Fenster**: Nach einem Update (neue Version beim Start) zeigt das Programm einmal die Änderungen der neuen Version, bei übersprungenen Versionen bis zu vier Abschnitte. Es erscheint nicht bei der Erstinstallation und nicht bei einem Rückschritt auf eine ältere Version; mit „Nicht mehr anzeigen“ lässt es sich abschalten. Der Text kommt aus der CHANGELOG, die jetzt im Programm mitgeliefert wird (`--add-data` in `build.bat` und im Workflow).
 - **Chroma-Key auf dem Hauptvideo** (Reiter „Clip“): Greenscreen-Clip der Hauptspur, Farbe (Grün, Blau, eigene Farbe, Pipette), Toleranz, weiche Kante, Farbsaum. Dahinter scheint ein Hintergrund durch: ein Bild, ein Video (läuft in Schleife) oder Schwarz. Gilt pro Clip und wird beim Teilen (z. B. Tempokurve) mit vererbt. Pixeltest über Bild, Video und Schwarz.

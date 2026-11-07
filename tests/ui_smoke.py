@@ -36,6 +36,29 @@ def no_slot_errors(where: str) -> None:
     assert not SLOT_ERRORS, f"Fehler in einem Qt-Slot ({where}):\n" + SLOT_ERRORS[0]
 
 
+FAILS: list[str] = []
+
+
+class section:  # noqa: N801
+    """Ein Abschnitt des Tests: ein Fehler wird gesammelt, die übrigen Abschnitte laufen trotzdem weiter
+    (so zeigt ein Durchlauf auf dem Build-Server alle Fehler statt nur den ersten)."""
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, et, ev, tb):
+        if et is None:
+            print("OK  ", self.name)
+            return False
+        import traceback
+        FAILS.append(f"[{self.name}]\n" + "".join(traceback.format_exception(et, ev, tb)[-4:]))
+        print("FEHLER in", self.name, "-", et.__name__, ev)
+        return isinstance(ev, Exception)        # Abbruch durch Strg+C o. Ä. nicht verschlucken
+
+
 def main() -> int:
     sys.excepthook = _collect
     app = QApplication([])
@@ -489,150 +512,204 @@ def main() -> int:
     app.processEvents()
     win.grab()                                             # zeichnet die ganze neue Oberfläche (Reiterleiste, Raster, Leisten)
 
-    # 1.4.2: Titel-Reiter, Übergänge-Reiter (Vorschaubilder, Ablegen), Split, Ton verbessern, Oberfläche merken
-    from app.ui.timeline import TITLE_MIME, TRANS_MIME
-    win.tabs.setCurrentIndex(mw.TAB_TITLES)
-    assert win.title_list.count() >= 10, "Titel-Vorlagen fehlen"
-    n_tx = len(win.project.texts)
-    win.add_title("lower_third", 1.0)
-    assert len(win.project.texts) == n_tx + 1 and win.tabs.currentIndex() == mw.TAB_TEXT
-    md = win.title_list.mimeData([win.title_list.item(0)])
-    assert md.text().startswith(TITLE_MIME), md.text()
-    ev = _QDE(_QPF(win.timeline._x(0.5), win.timeline._lane_y(0) + 10), Qt.DropAction.CopyAction, md,
-              Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
-    win.timeline.dropEvent(ev)
-    assert len(win.project.texts) == n_tx + 2, "Titel ablegen"
-    win.tabs.setCurrentIndex(mw.TAB_TRANS)
-    assert win.trans_list.count() >= 10, "Übergänge fehlen"
-    win._start_trans_thumbs()
-    for _ in range(400):                                   # Vorschaubilder der Übergänge entstehen im Hintergrund
+    with section("Titel und Übergänge"):
+        # 1.4.2: Titel-Reiter, Übergänge-Reiter (Vorschaubilder, Ablegen), Split, Ton verbessern, Oberfläche merken
+        from app.ui.timeline import TITLE_MIME, TRANS_MIME
+        win.tabs.setCurrentIndex(mw.TAB_TITLES)
+        assert win.title_list.count() >= 10, "Titel-Vorlagen fehlen"
+        n_tx = len(win.project.texts)
+        win.add_title("lower_third", 1.0)
+        assert len(win.project.texts) == n_tx + 1 and win.tabs.currentIndex() == mw.TAB_TEXT
+        md = win.title_list.mimeData([win.title_list.item(0)])
+        assert md.text().startswith(TITLE_MIME), md.text()
+        ev = _QDE(_QPF(win.timeline._x(0.5), win.timeline._lane_y(0) + 10), Qt.DropAction.CopyAction, md,
+                  Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+        win.timeline.dropEvent(ev)
+        assert len(win.project.texts) == n_tx + 2, "Titel ablegen"
+        win.tabs.setCurrentIndex(mw.TAB_TRANS)
+        assert win.trans_list.count() >= 10, "Übergänge fehlen"
+        win._start_trans_thumbs()
+        for _ in range(400):                                   # Vorschaubilder der Übergänge entstehen im Hintergrund
+            app.processEvents()
+            time.sleep(0.05)
+            if all(not win.trans_list.item(i).icon().isNull() for i in range(win.trans_list.count())):
+                break
+        assert any(not win.trans_list.item(i).icon().isNull() for i in range(win.trans_list.count())), "Übergangs-Vorschaubilder fehlen"
+        while len(win.project.clips) < 3:
+            win._add_to_timeline(win.media_list.item(0).data(Qt.ItemDataRole.UserRole))
+        win.apply_transition("fade", 0)
+        assert win.project.clips[0].transition == "fade"
+        win.apply_transition("", 0)
+        assert win.project.clips[0].transition == ""
+        md = win.trans_list.mimeData([win.trans_list.item(1)])
+        assert md.text().startswith(TRANS_MIME), md.text()
+        gap = win.project.clip_start(1)
+        ev = _QDE(_QPF(win.timeline._x(gap), win.timeline._lane_y(0) + 10), Qt.DropAction.CopyAction, md,
+                  Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+        win.timeline.dropEvent(ev)
+        assert win.project.clips[0].transition == win.trans_list.item(1).data(Qt.ItemDataRole.UserRole), "Übergang ablegen"
+        win.apply_transition("", all_clips=True)
+    with section("Split: zwei markierte Medien einfügen"):
+        # Split: zwei markierte Medien einfügen
+        win.tabs.setCurrentIndex(mw.TAB_SPLIT)
+        win.media_list.selectAll()
+        n_ov = len(win.project.overlays)
+        used = win.split_from_media("2h")
+        assert len(used) == 2 and len(win.project.overlays) == n_ov + 2 and all(win.project.overlays[i].cell for i in used), used
+        assert not win.ov_x.isEnabled() and not win.ov_split_note.isHidden(), "Split-Block: Position sperren"
+        win.grab()
+        win.clear_split()
+        assert not any(o.cell for o in win.project.overlays) and win.ov_x.isEnabled()
+    with section("Ton verbessern"):
+        # Ton verbessern
+        win._select_clip(0)
+        win.clip_dn.setValue(30)
+        win.clip_vc.setValue(20)
+        assert win.project.clips[0].denoise == 30 and win.project.clips[0].voice == 20 and win.clip_dn_label.text() == "30 %"
+        win.clip_dn.setValue(0)
+        win.clip_vc.setValue(0)
+        assert win.clip_dn_label.text() == "aus"
+    with section("Export-Thread misst die Lautheit"):
+        from app.ui.workers import ExportWorker
+        _outp = str(Path(tempfile.mkdtemp()) / "m.mp4")
+        _cmd, _tot, _tmpd = mw.exporter.build_command(win.project, _outp, draft=True, preview_height=180, max_seconds=2.0)
+        _errs: list = []
+        _wk = ExportWorker(_cmd, _tot, None, measure_path=_outp)
+        _wk.done.connect(_errs.append)
+        _wk.start()
+        assert _wk.wait(180000), "Export-Thread wurde nicht fertig"
         app.processEvents()
-        time.sleep(0.05)
-        if all(not win.trans_list.item(i).icon().isNull() for i in range(win.trans_list.count())):
-            break
-    assert any(not win.trans_list.item(i).icon().isNull() for i in range(win.trans_list.count())), "Übergangs-Vorschaubilder fehlen"
-    while len(win.project.clips) < 3:
-        win._add_to_timeline(win.media_list.item(0).data(Qt.ItemDataRole.UserRole))
-    win.apply_transition("fade", 0)
-    assert win.project.clips[0].transition == "fade"
-    win.apply_transition("", 0)
-    assert win.project.clips[0].transition == ""
-    md = win.trans_list.mimeData([win.trans_list.item(1)])
-    assert md.text().startswith(TRANS_MIME), md.text()
-    gap = win.project.clip_start(1)
-    ev = _QDE(_QPF(win.timeline._x(gap), win.timeline._lane_y(0) + 10), Qt.DropAction.CopyAction, md,
-              Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
-    win.timeline.dropEvent(ev)
-    assert win.project.clips[0].transition == win.trans_list.item(1).data(Qt.ItemDataRole.UserRole), "Übergang ablegen"
-    win.apply_transition("", all_clips=True)
-    # Split: zwei markierte Medien einfügen
-    win.tabs.setCurrentIndex(mw.TAB_SPLIT)
-    win.media_list.selectAll()
-    n_ov = len(win.project.overlays)
-    used = win.split_from_media("2h")
-    assert len(used) == 2 and len(win.project.overlays) == n_ov + 2 and all(win.project.overlays[i].cell for i in used), used
-    assert not win.ov_x.isEnabled() and not win.ov_split_note.isHidden(), "Split-Block: Position sperren"
-    win.grab()
-    win.clear_split()
-    assert not any(o.cell for o in win.project.overlays) and win.ov_x.isEnabled()
-    # Ton verbessern
-    win._select_clip(0)
-    win.clip_dn.setValue(30)
-    win.clip_vc.setValue(20)
-    assert win.project.clips[0].denoise == 30 and win.project.clips[0].voice == 20 and win.clip_dn_label.text() == "30 %"
-    win.clip_dn.setValue(0)
-    win.clip_vc.setValue(0)
-    assert win.clip_dn_label.text() == "aus"
-    # Pipette (Dialog mit Standbild, Klick in die Mitte)
-    from PySide6.QtTest import QTest
-    from app.core import frames as _frames
-    from app.ui.pickdialog import PickDialog
-    _png = str(Path(tempfile.mkdtemp()) / "pick.png")
-    _frames.extract_frame(win.project.clips[0].path, _png, 0.5)
-    dlg = PickDialog(_png)
-    dlg.show()
-    app.processEvents()
-    assert not dlg.buttons.button(dlg.buttons.StandardButton.Ok).isEnabled(), "OK erst nach einer Wahl"
-    QTest.mouseClick(dlg.canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, dlg.canvas.rect().center())
-    app.processEvents()
-    assert dlg.color.startswith("#") and len(dlg.color) == 7, dlg.color
-    assert dlg.buttons.button(dlg.buttons.StandardButton.Ok).isEnabled()
-    dlg.close()
-    assert win.ov_key_eye.text() == "Pipette …"
-    # Mehrfach-Export: Menüeintrag vorhanden
-    assert "Mehrere Formate" in win.act_export_multi.text()
-    # Geschwindigkeitskurve
-    win._select_clip(0)
-    n_c = len(win.project.clips)
-    win.ramp_preset.setCurrentIndex(win.ramp_preset.findData("slow_mid"))
-    assert win.ramp_text.text().startswith("0:1") and "Länge" in win.ramp_info.text(), (win.ramp_text.text(), win.ramp_info.text())
-    used = win.apply_speed_ramp()
-    assert len(used) >= 5 and len(win.project.clips) == n_c - 1 + len(used), (len(used), len(win.project.clips))
-    win.ramp_text.setText("0:1, 999:1")
-    assert win.apply_speed_ramp() == [] and "999" in win.ramp_info.text()
-    # Kurven-Editor: Vorlage erscheint in der Zeichenfläche, Ziehen/Doppelklick/Rechtsklick ändern das Textfeld
-    from PySide6.QtCore import QPoint as _QP, Qt as _Qt
-    from PySide6.QtTest import QTest as _QT
-    from app.core import rampgraph as _rg
-    cur = win.ramp_curve
-    cur.resize(400, 160)
-    CW, CH = cur.width(), cur.height()          # tatsächliche Größe (das Layout kann sie ändern)
-    assert CW > 50 and CH > 50, (CW, CH)
-    win.ramp_text.setText("0:1, 50:0.25, 100:1")
-    assert len(cur.points()) == 3, cur.points()
-    mx, my = _rg.to_px(cur.points()[1], CW, CH)
-    _QT.mousePress(cur, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, _QP(int(mx), int(my)))
-    ux, uy = _rg.to_px([70, 2.0], CW, CH)
-    _QT.mouseMove(cur, _QP(int(ux), int(uy)))
-    _QT.mouseRelease(cur, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, _QP(int(ux), int(uy)))
-    pts_now = _rg.rounded(cur.points())
-    assert 66 < pts_now[1][0] < 74 and 1.7 < pts_now[1][1] < 2.4, pts_now
-    assert win.ramp_text.text().startswith("0:1, ") and len(win.ramp_text.text().split(",")) == 3, win.ramp_text.text()
-    ax, ay = _rg.to_px([20, 0.5], CW, CH)
-    _QT.mouseDClick(cur, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, _QP(int(ax), int(ay)))
-    assert len(cur.points()) == 4 and len(win.ramp_text.text().split(",")) == 4, (cur.points(), win.ramp_text.text())
-    ax, ay = _rg.to_px(cur.points()[1], CW, CH)
-    _QT.mouseClick(cur, _Qt.MouseButton.RightButton, _Qt.KeyboardModifier.NoModifier, _QP(int(ax), int(ay)))
-    assert len(cur.points()) == 3 and len(win.ramp_text.text().split(",")) == 3, (cur.points(), win.ramp_text.text())
-    cur.grab()                                  # Zeichnen darf nicht abstürzen
-    # Chroma-Key auf dem Hauptvideo
-    win._select_clip(0)
-    win.ck_on.setChecked(True)
-    assert win.project.clips[win.sel].key_color == "#00ff00", win.project.clips[win.sel].key_color
-    win.ck_sim.setValue(55.0)
-    assert win.project.clips[win.sel].key_similarity == 55.0
-    win.ck_blue.click()
-    assert win.project.clips[win.sel].key_color == "#0000ff" and win.ck_on.isChecked()
-    win.ck_on.setChecked(False)
-    assert win.project.clips[win.sel].key_color == "" and "schwarz" in win.ck_bg_label.text()
-    # Was ist neu: nach Versionswechsel erscheint das Fenster einmal, danach nicht mehr
-    from app.core import settings as _st0
-    from app.ui import whatsnewdialog as _wnd
-    _shown = []
-    _wnd.WhatsNewDialog.exec = lambda self: _shown.append(self.browser.toPlainText()) or 0
-    _st0.save({"last_version": "1.0.0", "whatsnew_off": False})
-    assert win._check_whats_new() is True and f"Version {mw.VERSION}" in _shown[0], _shown
-    assert _st0.load()["last_version"] == mw.VERSION
-    assert win._check_whats_new() is False and len(_shown) == 1
-    _st0.save({"last_version": "1.0.0", "whatsnew_off": True})
-    assert win._check_whats_new() is False and len(_shown) == 1
-    _st0.save({"whatsnew_off": False})
-    # Oberfläche merken: Werte in die Einstellungen schreiben, wiederherstellen, zurücksetzen
-    from app.core import settings as _st
-    win.timeline.set_locked([2])
-    win.tabs.setCurrentIndex(mw.TAB_SPLIT)
-    win._save_ui()
-    saved = _st.load()
-    assert saved["ui_locked"] == [2] and saved["ui_tab"] == mw.TAB_SPLIT and len(saved["ui_hsplit"]) == 2, saved
-    win.timeline.set_locked([])
-    win.tabs.setCurrentIndex(mw.TAB_MEDIA)
-    win._restore_ui()
-    assert win.timeline.locked_lanes() == [2] and win.tabs.currentIndex() == mw.TAB_SPLIT
-    win.timeline.set_locked([])
-    _st.save({"ui_locked": [], "ui_tab": 0, "ui_zoom": 1.0, "ui_hsplit": [], "ui_vsplit": []})
-    win.tabs.setCurrentIndex(mw.TAB_MEDIA)
-    no_slot_errors("1.4.2")
+        assert _errs == [""], _errs
+        assert Path(_outp).exists() and Path(_outp).stat().st_size > 0
+        assert _wk.loudness is None or -70.0 < _wk.loudness < 5.0, _wk.loudness
+    with section("Pipette (Dialog mit Standbild, Klick in die Mitte)"):
+        # Pipette (Dialog mit Standbild, Klick in die Mitte)
+        from PySide6.QtTest import QTest
+        from app.core import frames as _frames
+        from app.ui.pickdialog import PickDialog
+        _png = str(Path(tempfile.mkdtemp()) / "pick.png")
+        _frames.extract_frame(win.project.clips[0].path, _png, 0.5)
+        dlg = PickDialog(_png)
+        dlg.show()
+        app.processEvents()
+        assert not dlg.buttons.button(dlg.buttons.StandardButton.Ok).isEnabled(), "OK erst nach einer Wahl"
+        QTest.mouseClick(dlg.canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, dlg.canvas.rect().center())
+        app.processEvents()
+        assert dlg.color.startswith("#") and len(dlg.color) == 7, dlg.color
+        assert dlg.buttons.button(dlg.buttons.StandardButton.Ok).isEnabled()
+        dlg.close()
+        assert win.ov_key_eye.text() == "Pipette …"
+    with section("Mehrfach-Export: Menüeintrag vorhanden"):
+        # Mehrfach-Export: Menüeintrag vorhanden
+        assert "Mehrere Formate" in win.act_export_multi.text()
+    with section("Geschwindigkeitskurve"):
+        # Geschwindigkeitskurve
+        win._select_clip(0)
+        n_c = len(win.project.clips)
+        win.ramp_preset.setCurrentIndex(win.ramp_preset.findData("slow_mid"))
+        assert win.ramp_text.text().startswith("0:1") and "Länge" in win.ramp_info.text(), (win.ramp_text.text(), win.ramp_info.text())
+        used = win.apply_speed_ramp()
+        assert len(used) >= 5 and len(win.project.clips) == n_c - 1 + len(used), (len(used), len(win.project.clips))
+        win.ramp_text.setText("0:1, 999:1")
+        assert win.apply_speed_ramp() == [] and "999" in win.ramp_info.text()
+        # nachträglich ändern: Abschnitt wählen → Kurve erscheint, „ersetzen“ berechnet neu, „entfernen“ stellt den Clip wieder her
+        win._select_clip(used[3])
+        assert win.btn_ramp_off.isEnabled() and "ersetzen" in win.btn_ramp.text(), win.btn_ramp.text()
+        assert win.ramp_group_note.text().startswith("Dieser Clip gehört zu einer Kurve"), win.ramp_group_note.text()
+        win.ramp_preset.setCurrentIndex(win.ramp_preset.findData("hero"))
+        used2 = win.apply_speed_ramp()
+        assert used2 and win.project.clips[used2[0]].ramp_id and win.btn_ramp_off.isEnabled(), used2
+        win._select_clip(used2[1])
+        assert win.ramp_text.text().startswith("0:2, 35:2, 50:0.2"), win.ramp_text.text()
+        assert win.remove_speed_ramp() is True and len(win.project.clips) == n_c, (len(win.project.clips), n_c)
+        assert not win.btn_ramp_off.isEnabled() and "anwenden" in win.btn_ramp.text()
+    with section("Kurven-Editor: Vorlage erscheint in der Zeichenfläche, Ziehen/Doppelkl"):
+        # Kurven-Editor: Vorlage erscheint in der Zeichenfläche, Ziehen/Doppelklick/Rechtsklick ändern das Textfeld
+        from PySide6.QtCore import QPoint as _QP, Qt as _Qt
+        from PySide6.QtTest import QTest as _QT
+        from app.core import rampgraph as _rg
+        cur = win.ramp_curve
+        cur.resize(400, 160)
+        CW, CH = cur.width(), cur.height()          # tatsächliche Größe (das Layout kann sie ändern)
+        assert CW > 50 and CH > 50, (CW, CH)
+        win.ramp_text.setText("0:1, 50:0.25, 100:1")
+        assert len(cur.points()) == 3, cur.points()
+        mx, my = _rg.to_px(cur.points()[1], CW, CH)
+        _QT.mousePress(cur, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, _QP(int(mx), int(my)))
+        ux, uy = _rg.to_px([70, 2.0], CW, CH)
+        _QT.mouseMove(cur, _QP(int(ux), int(uy)))
+        _QT.mouseRelease(cur, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, _QP(int(ux), int(uy)))
+        pts_now = _rg.rounded(cur.points())
+        assert 66 < pts_now[1][0] < 74 and 1.7 < pts_now[1][1] < 2.4, pts_now
+        assert win.ramp_text.text().startswith("0:1, ") and len(win.ramp_text.text().split(",")) == 3, win.ramp_text.text()
+        ax, ay = _rg.to_px([20, 0.5], CW, CH)
+        _QT.mouseDClick(cur, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, _QP(int(ax), int(ay)))
+        assert len(cur.points()) == 4 and len(win.ramp_text.text().split(",")) == 4, (cur.points(), win.ramp_text.text())
+        ax, ay = _rg.to_px(cur.points()[1], CW, CH)
+        _QT.mouseClick(cur, _Qt.MouseButton.RightButton, _Qt.KeyboardModifier.NoModifier, _QP(int(ax), int(ay)))
+        assert len(cur.points()) == 3 and len(win.ramp_text.text().split(",")) == 3, (cur.points(), win.ramp_text.text())
+        cur.grab()                                  # Zeichnen darf nicht abstürzen
+    with section("eigene Tempokurven speichern, auswählen, löschen"):
+        # eigene Tempokurven speichern, auswählen, löschen
+        from app.core import settings as _stq
+        _stq.save({"my_ramps": []})
+        win.ramp_text.setText("0:1, 40:0.3, 100:1.5")
+        assert win.save_my_ramp("Rauschtest") is True
+        assert win.ramp_preset.currentData() == "my:Rauschtest" and win.ramp_del.isEnabled(), win.ramp_preset.currentData()
+        win.ramp_text.setText("0:1, 100:1")
+        win.ramp_preset.setCurrentIndex(0)
+        assert not win.ramp_del.isEnabled()
+        win.ramp_preset.setCurrentIndex(win.ramp_preset.findData("my:Rauschtest"))
+        assert win.ramp_text.text() == "0:1, 40:0.3, 100:1.5", win.ramp_text.text()
+        assert win.delete_my_ramp() is True and win.ramp_preset.findData("my:Rauschtest") == -1 and _stq.load()["my_ramps"] == []
+    with section("Chroma-Key auf dem Hauptvideo"):
+        # Chroma-Key auf dem Hauptvideo
+        win._select_clip(0)
+        win.ck_on.setChecked(True)
+        assert win.project.clips[win.sel].key_color == "#00ff00", win.project.clips[win.sel].key_color
+        win.ck_sim.setValue(55.0)
+        assert win.project.clips[win.sel].key_similarity == 55.0
+        win.ck_blue.click()
+        assert win.project.clips[win.sel].key_color == "#0000ff" and win.ck_on.isChecked()
+        win.ck_on.setChecked(False)
+        assert win.project.clips[win.sel].key_color == "" and "schwarz" in win.ck_bg_label.text()
+    with section("Was ist neu: nach Versionswechsel erscheint das Fenster einmal, danach"):
+        # Was ist neu: nach Versionswechsel erscheint das Fenster einmal, danach nicht mehr
+        from app.core import settings as _st0
+        from app.ui import whatsnewdialog as _wnd
+        _shown = []
+        _wnd.WhatsNewDialog.exec = lambda self: _shown.append(self.browser.toPlainText()) or 0
+        _st0.save({"last_version": "1.0.0", "whatsnew_off": False})
+        assert win._check_whats_new() is True and f"Version {mw.VERSION}" in _shown[0], _shown
+        assert _st0.load()["last_version"] == mw.VERSION
+        assert win._check_whats_new() is False and len(_shown) == 1
+        _st0.save({"last_version": "1.0.0", "whatsnew_off": True})
+        assert win._check_whats_new() is False and len(_shown) == 1
+        _st0.save({"whatsnew_off": False})
+    with section("Oberfläche merken: Werte in die Einstellungen schreiben, wiederherstel"):
+        # Oberfläche merken: Werte in die Einstellungen schreiben, wiederherstellen, zurücksetzen
+        from app.core import settings as _st
+        win.timeline.set_locked([2])
+        win.tabs.setCurrentIndex(mw.TAB_SPLIT)
+        win._save_ui()
+        saved = _st.load()
+        assert saved["ui_locked"] == [2] and saved["ui_tab"] == mw.TAB_SPLIT and len(saved["ui_hsplit"]) == 2, saved
+        win.timeline.set_locked([])
+        win.tabs.setCurrentIndex(mw.TAB_MEDIA)
+        win._restore_ui()
+        assert win.timeline.locked_lanes() == [2] and win.tabs.currentIndex() == mw.TAB_SPLIT
+        win.timeline.set_locked([])
+        _st.save({"ui_locked": [], "ui_tab": 0, "ui_zoom": 1.0, "ui_hsplit": [], "ui_vsplit": []})
+        win.tabs.setCurrentIndex(mw.TAB_MEDIA)
+    try:
+        no_slot_errors("1.4.2")
+    except AssertionError as exc:
+        FAILS.append(f"[Slot-Fehler]\n{exc}")
 
+    if FAILS:
+        print("\n===== %d Abschnitt(e) fehlgeschlagen =====" % len(FAILS))
+        print("\n".join(FAILS))
+        return 1
     no_slot_errors("Ende des Tests")
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "ui_smoke.png")
     win.grab().save(str(out))

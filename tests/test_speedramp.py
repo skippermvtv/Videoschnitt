@@ -183,6 +183,32 @@ cmd, total, _ = exporter.build_command(pr2, str(out2), draft=True, preview_heigh
 exporter.run(cmd, total)
 check(out2.exists() and abs(probe(str(out2)).duration - pr2.duration) < 0.35, f"Länge mit Übergang: {probe(str(out2)).duration:.2f} / {pr2.duration:.2f}")
 print("OK  Export mit Übergang und Bewegung")
+# Eigene Kurven (Einstellungen)
+saved = sr.add_saved([], "  Meine   Kurve ", [[0, 1], [50, 0.3], [100, 1]])
+check(saved == [{"name": "Meine Kurve", "points": [[0.0, 1.0], [50.0, 0.3], [100.0, 1.0]]}], f"speichern {saved}")
+saved = sr.add_saved(saved, "meine kurve", [[0, 2], [100, 0.5]])
+check(len(saved) == 1 and saved[0]["points"] == [[0.0, 2.0], [100.0, 0.5]], "gleicher Name (Groß-/Kleinschreibung egal) ersetzt")
+saved = sr.add_saved(saved, "B", [[10, 1], [90, 2]])
+check([c["name"] for c in saved] == [saved[0]["name"], "B"] and saved[1]["points"][0] == [0.0, 1.0], "Punkte werden wie sonst ergänzt (0 % und 100 %)")
+check([c["name"] for c in sr.remove_saved(saved, " b ")] == [saved[0]["name"]], "löschen")
+for bad_name, bad_pts in (("", [[0, 1], [100, 1]]), ("   ", [[0, 1], [100, 1]]), ("X", [[0, 1]]), ("X", [[0, 99], [100, 1]])):
+    try:
+        sr.add_saved([], bad_name, bad_pts)
+        check(False, f"hätte abgelehnt werden müssen: {bad_name!r} {bad_pts}")
+    except sr.SpeedRampError:
+        pass
+check(sr.clean_saved("kaputt") == [] and sr.clean_saved(None) == [] and sr.clean_saved([1, {"name": 3}, {"name": "x"}, {"name": "ok", "points": [[0, 1], [100, 2]]}])[0]["name"] == "ok", "kaputte Einträge werden verworfen")
+many = [{"name": f"k{i}", "points": [[0, 1], [100, 1]]} for i in range(30)]
+check(len(sr.clean_saved(many)) == sr.MAX_SAVED, "höchstens 20 Kurven")
+try:
+    sr.add_saved(many[:20], "neu", [[0, 1], [100, 1]])
+    check(False, "21. Kurve muss abgelehnt werden")
+except sr.SpeedRampError:
+    pass
+check(len(sr.add_saved(many[:20], "k3", [[0, 5], [100, 1]])) == 20, "Ersetzen bei voller Liste ist erlaubt")
+check(len(sr.clean_saved([{"name": "x" * 90, "points": [[0, 1], [100, 1]]}])[0]["name"]) == sr.MAX_NAME, "Namen werden gekürzt")
+print("OK  Eigene Kurven")
+
 
 # Windows erlaubt nur ~32 000 Zeichen je Befehl: lange Filtergraphen (viele Abschnitte) müssen über eine Datei laufen
 pr3 = Project(format_id="youtube_16_9", export_id="youtube_1080p")

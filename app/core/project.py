@@ -133,6 +133,13 @@ class Clip:
     key_blend: float = 20.0
     key_spill: bool = True
     key_bg: str = ""               # Hintergrunddatei (Bild oder Video); leer = schwarz
+    # Tempokurve (1.4.5): alle Abschnitte einer angewendeten Kurve tragen dieselbe ramp_id, damit die Kurve später
+    # ersetzt werden kann. ramp_* merkt sich, wie der Clip vor der Kurve aussah.
+    ramp_id: str = ""
+    ramp_pts: list = field(default_factory=list)      # die Kurve [[Position %, Tempo], …]
+    ramp_speed: float = 1.0                           # Grundtempo des Clips vor der Kurve
+    ramp_keys: list = field(default_factory=list)     # Bewegungs-Keyframes vor dem Teilen
+    ramp_ease: bool = True
 
     def __post_init__(self):
         if not self.out_pt:

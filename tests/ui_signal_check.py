@@ -695,6 +695,49 @@ win.split_main.setCurrentIndex(0)
 win.split_gap.setValue(0.0)
 no_errors("1.4.3: Split Zusätze")
 print("OK  1.4.3: Split Linie/Hauptvideo/Ausschnitt")
+# 1.4.5: Kurve nachträglich ändern
+from app.core import speedramp as _rm  # noqa: E402
+win._select_clip(0)
+win.remove_speed_ramp()                          # falls Clip 0 aus einem früheren Abschnitt schon eine Kurve trägt
+_n0 = len(win.project.clips)
+win.ramp_text.setText("0:1, 50:0.3, 100:1")
+_u1 = win.apply_speed_ramp()
+assert _u1 and _rm.group_of(win.project, win.sel) is not None
+win._select_clip(_u1[2])
+win._show_ramp_group()
+win.ramp_text.setText("0:2, 100:0.5")
+_u2 = win.apply_speed_ramp()
+assert _u2 and _rm.curve_of(win.project, _u2[0]) == [[0.0, 2.0], [100.0, 0.5]]
+_ok = win.remove_speed_ramp()
+assert _ok is True and len(win.project.clips) == _n0, (_ok, len(win.project.clips), _n0, win.sel, _u2[:3])
+assert win.remove_speed_ramp() is False
+no_errors("1.4.5: Kurve nachträglich ändern")
+print("OK  1.4.5: Kurve nachträglich ändern")
+# 1.4.5: eigene Tempokurven
+from app.core import settings as _stm  # noqa: E402
+_stm.save({"my_ramps": []})
+win.ramp_text.setText("0:1, 50:0.3, 100:1")
+assert win.save_my_ramp("Test Kurve") is True
+assert [c["name"] for c in _stm.load()["my_ramps"]] == ["Test Kurve"]
+win.ramp_text.setText("kaputt")
+assert win.save_my_ramp("Andere") is False
+assert [c["name"] for c in _stm.load()["my_ramps"]] == ["Test Kurve"]
+win.ramp_text.setText("0:1, 100:1")
+assert win.save_my_ramp("   ") is False
+_stm.save({"my_ramps": []})
+no_errors("1.4.5: Eigene Kurven")
+print("OK  1.4.5: Eigene Kurven")
+# 1.4.5: Lautheit nach dem Export
+win._last_loudness = None
+assert win._loudness_text() == ""
+win._last_loudness = -13.24
+win.project.normalize, win.project.lufs_target = True, -14.0
+assert win._loudness_text() == "Lautheit: −13,2 LUFS (Ziel −14,0)", win._loudness_text()
+win.project.normalize = False
+assert win._loudness_text() == "Lautheit: −13,2 LUFS", win._loudness_text()
+win._last_loudness = None
+no_errors("1.4.5: Lautheit nach Export")
+print("OK  1.4.5: Lautheit nach Export")
 # 1.4.4: Chroma-Key auf dem Hauptvideo
 win.project.overlays = []
 win.project.clips = win.project.clips[:1]

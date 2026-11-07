@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from .. import paths
 from ..core import effects as fx
-from ..core import whatsnew, diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
+from ..core import audiomix, loudcheck, whatsnew, diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
 from ..core.history import History
 from ..core.fontcheck import missing_chars
 from ..core.helptext import help_html
@@ -157,6 +157,8 @@ class MainWindow(QMainWindow):
         self._worker = None
         self._multi_jobs: list = []
         self._multi_ok: list = []
+        self._multi_loud: list = []
+        self._last_loudness: float | None = None
         self._multi_total = 0
         self._tmp_dirs: list[Path] = []
         self._grade_worker = None
@@ -1461,7 +1463,14 @@ class MainWindow(QMainWindow):
         self.ramp_preset.addItem("– Vorlage wählen –", "")
         for rid, rname, rpts in rampmod.PRESETS:
             self.ramp_preset.addItem(rname, rid)
+        self._fill_ramp_presets()
         self.ramp_preset.currentIndexChanged.connect(self._on_ramp_preset)
+        self.ramp_save = QPushButton("Kurve speichern …")
+        self.ramp_save.setToolTip("Speichert die Kurve unter einem Namen in der Vorlagenliste („Meine Kurven“).")
+        self.ramp_save.clicked.connect(lambda *_: self.save_my_ramp())
+        self.ramp_del = QPushButton("Gespeicherte löschen")
+        self.ramp_del.setEnabled(False)
+        self.ramp_del.clicked.connect(lambda *_: self.delete_my_ramp())
         self.ramp_text = QLineEdit()
         self.ramp_text.setPlaceholderText("Position in %:Tempo, z. B. 0:1, 50:0.25, 100:1")
         self.ramp_text.setToolTip("Punkte der Kurve als „Position im Clip in %:Tempo“, durch Komma getrennt. "
@@ -1470,15 +1479,28 @@ class MainWindow(QMainWindow):
         self.ramp_info = QLabel("")
         self.ramp_info.setWordWrap(True)
         self.ramp_info.setStyleSheet(f"color: {MUTED};")
-        btn_ramp = QPushButton("Kurve anwenden (teilt den Clip in Abschnitte)")
-        btn_ramp.clicked.connect(lambda *_: self.apply_speed_ramp())
+        self.btn_ramp = QPushButton("Kurve anwenden (teilt den Clip in Abschnitte)")
+        self.btn_ramp.clicked.connect(lambda *_: self.apply_speed_ramp())
+        self.btn_ramp_off = QPushButton("Kurve entfernen (Clip wieder in einem Stück)")
+        self.btn_ramp_off.setEnabled(False)
+        self.btn_ramp_off.clicked.connect(lambda *_: self.remove_speed_ramp())
+        self.ramp_group_note = QLabel("")
+        self.ramp_group_note.setWordWrap(True)
+        self.ramp_group_note.setStyleSheet(f"color: {MUTED};")
+        self._ramp_loaded_id = ""
         self.ramp_curve = SpeedCurveEditor()
         self.ramp_curve.pointsChanged.connect(self._on_ramp_curve)
         form.addRow("Vorlage", self.ramp_preset)
+        rrow = QHBoxLayout()
+        rrow.addWidget(self.ramp_save)
+        rrow.addWidget(self.ramp_del)
+        form.addRow(rrow)
         form.addRow(self.ramp_curve)
         form.addRow("Punkte", self.ramp_text)
         form.addRow(self.ramp_info)
-        form.addRow(btn_ramp)
+        form.addRow(self.ramp_group_note)
+        form.addRow(self.btn_ramp)
+        form.addRow(self.btn_ramp_off)
         # --- Chroma-Key auf dem Hauptvideo (1.4.4)
         form.addRow(QLabel("Chroma-Key (Greenscreen im Hauptvideo)"))
         self.ck_on = QCheckBox("Hintergrundfarbe entfernen")
@@ -2748,6 +2770,7 @@ class MainWindow(QMainWindow):
         self.clip_trans_note.setVisible(last)
         self._loading = False
         self._show_ck(c)
+        self._show_ramp_group()
         self._load_grade_fields()
         self._load_motion_fields()
 
@@ -2876,12 +2899,63 @@ class MainWindow(QMainWindow):
         self._update_duration()
 
     # -- Geschwindigkeitskurve
+    def _fill_ramp_presets(self, select: str = "") -> None:
+        """Vorlagenliste: eingebaute Kurven, darunter „Meine Kurven“ (Kennung „my:Name“)."""
+        was = self.ramp_preset.blockSignals(True)
+        self.ramp_preset.clear()
+        self.ramp_preset.addItem("– Vorlage wählen –", "")
+        for rid, rname, _rpts in rampmod.PRESETS:
+            self.ramp_preset.addItem(rname, rid)
+        for c in rampmod.clean_saved(settings.load().get("my_ramps")):
+            self.ramp_preset.addItem(f"★ {c['name']}", f"my:{c['name']}")
+        self.ramp_preset.setCurrentIndex(max(0, self.ramp_preset.findData(select)) if select else 0)
+        self.ramp_preset.blockSignals(was)
+        if hasattr(self, "ramp_del"):
+            self.ramp_del.setEnabled(str(self.ramp_preset.currentData() or "").startswith("my:"))
+
     def _on_ramp_preset(self, *_args) -> None:
         rid = self.ramp_preset.currentData()
+        self.ramp_del.setEnabled(isinstance(rid, str) and rid.startswith("my:"))
+        if isinstance(rid, str) and rid.startswith("my:"):
+            for c in rampmod.clean_saved(settings.load().get("my_ramps")):
+                if c["name"] == rid[3:]:
+                    self.ramp_text.setText(rampmod.format_points(c["points"]))
+                    return
         for pid, _name, pts in rampmod.PRESETS:
             if pid == rid:
                 self.ramp_text.setText(rampmod.format_points(pts))
                 return
+
+    def save_my_ramp(self, name: str | None = None) -> bool:
+        """Aktuelle Kurve aus dem Textfeld unter einem Namen speichern. name=None: nach dem Namen fragen."""
+        try:
+            pts = rampmod.parse_points(self.ramp_text.text())
+        except rampmod.SpeedRampError as exc:
+            self.ramp_info.setText(str(exc))
+            return False
+        if name is None:
+            name, ok = QInputDialog.getText(self, "Kurve speichern", "Name der Kurve:", text="Meine Kurve")
+            if not ok:
+                return False
+        try:
+            saved = rampmod.add_saved(settings.load().get("my_ramps"), name, pts)
+        except rampmod.SpeedRampError as exc:
+            self.ramp_info.setText(str(exc))
+            return False
+        settings.save({"my_ramps": saved})
+        clean = " ".join(name.split())[:rampmod.MAX_NAME]
+        self._fill_ramp_presets(select=f"my:{clean}")
+        self.ramp_info.setText(f"Kurve „{clean}“ gespeichert (Vorlagenliste, mit ★).")
+        return True
+
+    def delete_my_ramp(self) -> bool:
+        rid = self.ramp_preset.currentData()
+        if not (isinstance(rid, str) and rid.startswith("my:")):
+            return False
+        settings.save({"my_ramps": rampmod.remove_saved(settings.load().get("my_ramps"), rid[3:])})
+        self._fill_ramp_presets()
+        self.ramp_info.setText(f"Kurve „{rid[3:]}“ gelöscht.")
+        return True
 
     def _on_ramp_curve(self, pts) -> None:
         """Zeichenfläche → Textfeld (das Textfeld bleibt die Quelle für „Kurve anwenden“)."""
@@ -2908,8 +2982,45 @@ class MainWindow(QMainWindow):
         if c is None:
             self.ramp_info.setText("Zuerst einen Clip in der Timeline anklicken.")
             return
-        new = rampmod.new_length(pts, max(0.05, c.out_pt - c.in_pt), c.speed)
-        self.ramp_info.setText(f"Länge: {fmt_time(c.length)} → {fmt_time(new)}")
+        g = rampmod.group_of(self.project, self.sel)
+        if g:                                                  # Kurve ersetzen: der ganze ursprüngliche Clip zählt
+            first, last = self.project.clips[g[0]], self.project.clips[g[1]]
+            cur = sum(k.length for k in self.project.clips[g[0]:g[1] + 1])
+            new = rampmod.new_length(pts, max(0.05, last.out_pt - first.in_pt), first.ramp_speed)
+        else:
+            cur = c.length
+            new = rampmod.new_length(pts, max(0.05, c.out_pt - c.in_pt), c.speed)
+        self.ramp_info.setText(f"Länge: {fmt_time(cur)} → {fmt_time(new)}")
+
+    def _show_ramp_group(self) -> None:
+        """Gehört der gewählte Clip zu einer angewendeten Kurve? Dann ihre Punkte zeigen und den Knopf umbenennen."""
+        g = rampmod.group_of(self.project, self.sel)
+        if g is None:
+            self._ramp_loaded_id = ""
+            self.ramp_group_note.setText("")
+            self.btn_ramp.setText("Kurve anwenden (teilt den Clip in Abschnitte)")
+            self.btn_ramp_off.setEnabled(False)
+            return
+        first = self.project.clips[g[0]]
+        self.ramp_group_note.setText(f"Dieser Clip gehört zu einer Kurve ({g[1] - g[0] + 1} Abschnitte). Ändere die Punkte "
+                                     "und klicke „Kurve ersetzen“ – die Abschnitte werden neu berechnet.")
+        self.btn_ramp.setText("Kurve ersetzen (berechnet die Abschnitte neu)")
+        self.btn_ramp_off.setEnabled(True)
+        if self._ramp_loaded_id != first.ramp_id:          # nur beim Wechsel in eine andere Kurve: eigene Eingaben nicht überschreiben
+            self._ramp_loaded_id = first.ramp_id
+            self.ramp_text.setText(rampmod.format_points(first.ramp_pts))
+
+    def remove_speed_ramp(self) -> bool:
+        """Führt die Abschnitte der Kurve wieder zu einem Clip zusammen."""
+        try:
+            idx = rampmod.merge_group(self.project, self.sel)
+        except rampmod.SpeedRampError as exc:
+            self.ramp_info.setText(str(exc))
+            self.statusBar().showMessage(str(exc))
+            return False
+        self._refresh_timeline(select=idx)
+        self.statusBar().showMessage("Kurve entfernt: der Clip ist wieder in einem Stück. Rückgängig mit Strg+Z.")
+        return True
 
     def apply_speed_ramp(self) -> list[int]:
         """Teilt den gewählten Clip nach der Kurve in Abschnitte mit gleichbleibender Geschwindigkeit."""
@@ -2919,13 +3030,14 @@ class MainWindow(QMainWindow):
         try:
             pts = rampmod.parse_points(self.ramp_text.text())
             was_detached = self.project.clips[self.sel].audio_detached
+            replaced = rampmod.group_of(self.project, self.sel) is not None
             used = rampmod.apply(self.project, self.sel, pts)
         except rampmod.SpeedRampError as exc:
             self.ramp_info.setText(str(exc))
             self.statusBar().showMessage(str(exc))
             return []
         self._refresh_timeline(select=used[0])
-        self.statusBar().showMessage(f"Geschwindigkeitskurve angewendet: {len(used)} Abschnitte"
+        self.statusBar().showMessage(f"Geschwindigkeitskurve {'ersetzt' if replaced else 'angewendet'}: {len(used)} Abschnitte"
                                      + (" (der getrennte Ton wurde wieder mit dem Clip verbunden)" if was_detached else "")
                                      + ". Rückgängig mit Strg+Z.")
         return used
@@ -3871,13 +3983,13 @@ class MainWindow(QMainWindow):
             self._live_timer.start(150)
 
     # ---------------------------------------------------------- Export/Vorschau
-    def _run_job(self, cmd, total, title: str, on_done) -> None:
+    def _run_job(self, cmd, total, title: str, on_done, measure: str = "") -> None:
         dlg = QProgressDialog(title, "Abbrechen", 0, 100, self)
         dlg.setWindowTitle(APP_NAME)
         dlg.setWindowModality(Qt.WindowModality.WindowModal)
         dlg.setMinimumDuration(0)
         dlg.setValue(0)
-        worker = ExportWorker(cmd, total, self)
+        worker = ExportWorker(cmd, total, self, measure_path=measure)
         self._job_t0 = time.monotonic()
 
         def on_progress(p: float):
@@ -3893,6 +4005,7 @@ class MainWindow(QMainWindow):
         def finished(err: str):
             dlg.close()
             self._worker = None
+            self._last_loudness = worker.loudness if not err else None
             if err:
                 diagnostics.log_error("%s fehlgeschlagen: %s", title, err[-1500:])
             else:
@@ -3990,6 +4103,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Mehrere Formate exportieren", str(exc))
             return False
         self._multi_jobs, self._multi_ok, self._multi_total = list(jobs), [], len(jobs)
+        self._multi_loud = []
         use_hw = self.chk_hw.isChecked() and exporter.hw_encoder() is not None
         self._multi_next(use_hw)
         return True
@@ -3998,8 +4112,10 @@ class MainWindow(QMainWindow):
         if not self._multi_jobs:
             done = self._multi_ok
             self.statusBar().showMessage(f"{len(done)} Dateien exportiert.")
+            loud = next((t for t in self._multi_loud if t), "")         # der Ton ist in allen Formaten derselbe
             if done and QMessageBox.question(self, "Export fertig", f"{len(done)} Dateien gespeichert:\n\n"
-                                             + "\n".join(Path(o).name for o in done) + "\n\nOrdner öffnen?") == QMessageBox.StandardButton.Yes:
+                                             + "\n".join(Path(o).name for o in done) + "\n\n" + (loud + "\n\n" if loud else "")
+                                             + "Ordner öffnen?") == QMessageBox.StandardButton.Yes:
                 self._open_folder(str(Path(done[0]).parent))
             return
         job = self._multi_jobs[0]
@@ -4022,10 +4138,17 @@ class MainWindow(QMainWindow):
                 self._multi_jobs = []
                 return
             self._multi_ok.append(job.out)
+            self._multi_loud.append(self._loudness_text(job.project))
             self._multi_jobs.pop(0)
             self._multi_next(use_hw)
 
-        self._run_job(cmd, total, f"Export {k}/{self._multi_total}: {job.label} …", done)
+        self._run_job(cmd, total, f"Export {k}/{self._multi_total}: {job.label} …", done, measure=job.out)
+
+    def _loudness_text(self, project=None) -> str:
+        """„Lautheit: −13,2 LUFS (Ziel −14,0)“ für den zuletzt fertigen Export (leer, wenn nicht gemessen)."""
+        p = project or self.project
+        goal = audiomix.lufs_goal(p) if getattr(p, "normalize", False) else None
+        return loudcheck.describe(getattr(self, "_last_loudness", None), goal)
 
     def _start_export(self, out: str, use_hw: bool) -> None:
         try:
@@ -4043,11 +4166,13 @@ class MainWindow(QMainWindow):
             if err:
                 QMessageBox.critical(self, "Export fehlgeschlagen", err)
             else:
-                self.statusBar().showMessage(f"Export fertig: {out}" + (" (mit Grafikkarte)" if use_hw else ""))
-                if QMessageBox.question(self, "Export fertig", f"Gespeichert unter:\n{out}\n\nOrdner öffnen?") == QMessageBox.StandardButton.Yes:
+                loud = self._loudness_text()
+                self.statusBar().showMessage(f"Export fertig: {out}" + (" (mit Grafikkarte)" if use_hw else "") + (f" – {loud}" if loud else ""))
+                if QMessageBox.question(self, "Export fertig", f"Gespeichert unter:\n{out}\n\n" + (loud + "\n\n" if loud else "")
+                                        + "Ordner öffnen?") == QMessageBox.StandardButton.Yes:
                     self._open_folder(str(Path(out).parent))
 
-        self._run_job(cmd, total, "Video wird exportiert …", done)
+        self._run_job(cmd, total, "Video wird exportiert …", done, measure=out)
 
     def _on_perf_changed(self, *_args) -> None:
         settings.save({"preview_len": float(self.cmb_prev_len.currentData() or 0.0),

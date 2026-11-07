@@ -9,10 +9,12 @@ class ExportWorker(QThread):
     progress = Signal(float)
     done = Signal(str)  # leerer String = Erfolg, sonst Fehlermeldung
 
-    def __init__(self, cmd: list[str], total: float, parent=None):
+    def __init__(self, cmd: list[str], total: float, parent=None, measure_path: str = ""):
         super().__init__(parent)
         self._cmd, self._total = cmd, total
         self._cancel = False
+        self._measure_path = measure_path
+        self.loudness: float | None = None          # nach dem Export gemessen (LUFS), falls measure_path gesetzt
 
     def cancel(self) -> None:
         self._cancel = True
@@ -20,6 +22,9 @@ class ExportWorker(QThread):
     def run(self) -> None:
         try:
             exporter.run(self._cmd, self._total, self.progress.emit, lambda: self._cancel)
+            if self._measure_path and not self._cancel:
+                from ..core import loudcheck
+                self.loudness = loudcheck.measure(self._measure_path)
             self.done.emit("")
         except Exception as exc:  # noqa: BLE001 - Fehler an die UI melden
             self.done.emit(str(exc))

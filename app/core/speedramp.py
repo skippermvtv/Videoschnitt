@@ -74,6 +74,49 @@ def normalize(points) -> list[list[float]]:
     return pts
 
 
+# ---------------------------------------------------------------- Eigene Kurven (in den Einstellungen gespeichert)
+MAX_SAVED = 20
+MAX_NAME = 40
+
+
+def clean_saved(raw) -> list[dict]:
+    """Prüft gespeicherte eigene Kurven: [{"name": str, "points": [[pos, tempo], …]}]; Kaputtes wird verworfen."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            continue
+        name = " ".join(item["name"].split())[:MAX_NAME]
+        if not name or name.lower() in seen:
+            continue
+        try:
+            pts = normalize(item.get("points"))
+        except SpeedRampError:
+            continue
+        seen.add(name.lower())
+        out.append({"name": name, "points": [[round(p[0], 3), round(p[1], 4)] for p in pts]})
+        if len(out) >= MAX_SAVED:
+            break
+    return out
+
+
+def add_saved(saved, name: str, points) -> list[dict]:
+    """Fügt eine Kurve hinzu oder ersetzt die gleichnamige; wirft SpeedRampError bei leerem Namen oder ungültiger Kurve."""
+    name = " ".join((name or "").split())[:MAX_NAME]
+    if not name:
+        raise SpeedRampError("Bitte einen Namen für die Kurve eingeben.")
+    pts = normalize(points)
+    cur = [c for c in clean_saved(saved) if c["name"].lower() != name.lower()]
+    if len(cur) >= MAX_SAVED:
+        raise SpeedRampError(f"Es lassen sich höchstens {MAX_SAVED} eigene Kurven speichern – bitte eine löschen.")
+    cur.append({"name": name, "points": [[round(p[0], 3), round(p[1], 4)] for p in pts]})
+    return cur
+
+
+def remove_saved(saved, name: str) -> list[dict]:
+    return [c for c in clean_saved(saved) if c["name"].lower() != (name or "").strip().lower()]
+
+
 def format_points(points) -> str:
     return ", ".join(f"{p[0]:g}:{p[1]:g}" for p in points)
 
@@ -135,25 +178,82 @@ def _remap(keys: list, ease: bool, a: float, b: float):
     return _remap_keys(keys, ease, 1.0, a, b)
 
 
+def _forget(c: Clip) -> None:
+    c.ramp_id, c.ramp_pts, c.ramp_speed, c.ramp_keys, c.ramp_ease = "", [], 1.0, [], True
+
+
+def group_of(project: Project, idx: int) -> tuple[int, int] | None:
+    """(erster, letzter Index) der Abschnitte, die zur Kurve des Clips `idx` gehören – oder None, wenn der Clip zu keiner Kurve
+    gehört oder die Abschnitte nicht mehr lückenlos hintereinander liegen (z. B. weil einer verschoben oder gekürzt wurde)."""
+    if not 0 <= idx < len(project.clips):
+        return None
+    gid = project.clips[idx].ramp_id
+    if not gid:
+        return None
+    lo = hi = idx
+    while lo > 0 and project.clips[lo - 1].ramp_id == gid:
+        lo -= 1
+    while hi + 1 < len(project.clips) and project.clips[hi + 1].ramp_id == gid:
+        hi += 1
+    if any(c.ramp_id == gid for k, c in enumerate(project.clips) if not lo <= k <= hi):
+        return None                                           # Abschnitte liegen verstreut
+    for a, b in zip(project.clips[lo:hi], project.clips[lo + 1:hi + 1]):
+        if a.path != b.path or abs(a.out_pt - b.in_pt) > 0.002 or a.reverse or b.reverse:
+            return None                                       # Lücke oder Sprung in der Quelle
+    return lo, hi
+
+
+def curve_of(project: Project, idx: int) -> list[list[float]] | None:
+    """Die gemerkte Kurve des Clips (für die Anzeige) oder None."""
+    g = group_of(project, idx)
+    return [list(q) for q in project.clips[g[0]].ramp_pts] if g else None
+
+
+def merge_group(project: Project, idx: int) -> int:
+    """Führt alle Abschnitte der Kurve wieder zu einem Clip zusammen (Anfang, Ende, Grundtempo, Bewegung wie vor der Kurve);
+    gibt den Index des Clips zurück."""
+    g = group_of(project, idx)
+    if g is None:
+        raise SpeedRampError("Dieser Clip gehört zu keiner Kurve, oder die Abschnitte wurden verändert.")
+    lo, hi = g
+    first, last = project.clips[lo], project.clips[hi]
+    first.out_pt = last.out_pt
+    first.speed = first.ramp_speed
+    first.transition, first.transition_dur = last.transition, last.transition_dur
+    first.keyframes, first.motion_ease = copy.deepcopy(first.ramp_keys), first.ramp_ease
+    _forget(first)
+    del project.clips[lo + 1:hi + 1]
+    project.sync_linked()
+    return lo
+
+
 def apply(project: Project, idx: int, points) -> list[int]:
     """Teilt den Clip `idx` nach der Kurve; gibt die Indizes der neuen Abschnitte zurück. Ein getrennter Ton wird dabei
     wieder mit dem Clip verbunden."""
     if not 0 <= idx < len(project.clips):
         raise SpeedRampError("Kein Clip gewählt.")
+    pts = normalize(points)
+    grp = group_of(project, idx)
+    if grp:                                    # gehört schon zu einer Kurve: erst zusammenführen, dann neu teilen
+        idx = merge_group(project, idx)
+    elif project.clips[idx].ramp_id:           # veraltete Spur einer Kurve (Abschnitte wurden verändert): vergessen
+        _forget(project.clips[idx])
     c = project.clips[idx]
     check_clip(c)
-    pts = normalize(points)
     if c.audio_detached:
         project.reattach_audio(idx)
     seg = c.out_pt - c.in_pt
     parts = pieces(pts, seg, c.speed)
     base_in, last_trans, last_dur = c.in_pt, c.transition, c.transition_dur
     keys, ease = list(c.keyframes or []), c.motion_ease
+    gid, base_speed = uuid.uuid4().hex[:10], c.speed
     new: list[Clip] = []
     for k, (a, b, sp) in enumerate(parts):
         piece = c if k == 0 else copy.deepcopy(c)
         if k > 0:
             piece.uid = uuid.uuid4().hex[:10]
+        piece.ramp_id, piece.ramp_pts, piece.ramp_speed = gid, [list(q) for q in pts], base_speed
+        piece.ramp_keys, piece.ramp_ease = copy.deepcopy(keys), ease
         piece.in_pt = base_in + a * seg
         piece.out_pt = base_in + b * seg if k < len(parts) - 1 else base_in + seg
         piece.speed = round(sp, 4)

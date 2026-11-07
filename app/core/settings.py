@@ -9,7 +9,9 @@ DEFAULTS = {"preview_len": 8.0, "preview_height": 360, "hw_encode": False, "live
             # Oberfläche (1.4.2): wird beim Beenden gespeichert und beim Start wiederhergestellt
             "ui_locked": [], "ui_zoom": 1.0, "ui_hsplit": [], "ui_vsplit": [], "ui_tab": 0,
             # „Was ist neu“ (1.4.4): zuletzt gestartete Version, Fenster abschaltbar
-            "last_version": "", "whatsnew_off": False}
+            "last_version": "", "whatsnew_off": False,
+            # eigene Tempokurven (1.4.5): [{"name": …, "points": [[Position %, Tempo], …]}]
+            "my_ramps": []}
 
 
 def clean_ui(raw: dict, n_lanes: int, n_tabs: int, max_zoom: float) -> dict:

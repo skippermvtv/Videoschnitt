@@ -182,7 +182,7 @@ print("Bewegung ok")
 import os as _os
 _os.environ["APPDATA"] = str(tmp / "appdata")
 calls = []
-def fake_job(cmd, total, title, on_done):
+def fake_job(cmd, total, title, on_done, measure=""):
     calls.append(title); exporter.run(cmd, total); on_done("")
 win._run_job = fake_job
 win.project.clips[0].keyframes = []
@@ -192,7 +192,7 @@ assert any(_pc.cache_dir().glob("*.mp4")) and win._preview_path
 win.render_preview(); assert len(calls) == 1, "zweite Vorschau muss aus dem Zwischenspeicher kommen"
 win._on_perf_changed()
 outs = []
-def fail_then_ok(cmd, total, title, on_done):
+def fail_then_ok(cmd, total, title, on_done, measure=""):
     outs.append("-c:v h264_nvenc" in " ".join(cmd) or "libx264" in " ".join(cmd))
     on_done("boom" if len(outs) == 1 else "")
 win._run_job = fail_then_ok
@@ -202,7 +202,7 @@ print("Vorschau/Export ok")
 # 1.4.3: mehrere Formate nacheinander (Ersatz-Job statt FFmpeg)
 (tmp / "multi").mkdir(exist_ok=True)
 seen = []
-def multi_job(cmd, total, title, on_done):
+def multi_job(cmd, total, title, on_done, measure=""):
     seen.append((title, cmd[-1]))
     on_done("")
 win._run_job = multi_job
@@ -213,7 +213,7 @@ assert [t.split(":")[0] for t, _ in seen] == ["Export 1/3", "Export 2/3", "Expor
 assert all(o.endswith(".mp4") for _, o in seen) and len({o for _, o in seen}) == 3 and "shorts" in seen[1][1], seen
 assert win._multi_jobs == [] and len(win._multi_ok) == 3
 seen2 = []
-def multi_fail(cmd, total, title, on_done):
+def multi_fail(cmd, total, title, on_done, measure=""):
     seen2.append(title)
     on_done("boom" if len(seen2) == 2 else "")
 win._run_job = multi_fail
