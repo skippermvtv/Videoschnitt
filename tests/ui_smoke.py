@@ -531,7 +531,7 @@ def main() -> int:
     n_ov = len(win.project.overlays)
     used = win.split_from_media("2h")
     assert len(used) == 2 and len(win.project.overlays) == n_ov + 2 and all(win.project.overlays[i].cell for i in used), used
-    assert not win.ov_x.isEnabled() and win.ov_split_note.isVisibleTo(win), "Split-Block: Position sperren"
+    assert not win.ov_x.isEnabled() and not win.ov_split_note.isHidden(), "Split-Block: Position sperren"
     win.grab()
     win.clear_split()
     assert not any(o.cell for o in win.project.overlays) and win.ov_x.isEnabled()
