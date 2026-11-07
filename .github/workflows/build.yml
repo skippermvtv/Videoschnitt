@@ -85,6 +85,8 @@ jobs:
           T tests/test_key_main.py $env:RUNNER_TEMP
           T tests/test_loudcheck.py $env:RUNNER_TEMP
           T tests/test_ramp_reapply.py
+          T tests/test_overlay_rows.py
+          T tests/test_key_preview.py $env:RUNNER_TEMP
           T tests/test_loudness.py $env:RUNNER_TEMP
           T tests/test_overlay_audio.py $env:RUNNER_TEMP
           T tests/test_multiexport.py $env:RUNNER_TEMP

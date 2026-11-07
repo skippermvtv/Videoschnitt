@@ -671,6 +671,9 @@ def main() -> int:
         assert win.project.clips[win.sel].key_similarity == 55.0
         win.ck_blue.click()
         assert win.project.clips[win.sel].key_color == "#0000ff" and win.ck_on.isChecked()
+        from PySide6.QtGui import QPixmap
+        _kp = win._key_preview_file()
+        assert Path(_kp).is_file() and not QPixmap(_kp).isNull(), _kp
         win.ck_on.setChecked(False)
         assert win.project.clips[win.sel].key_color == "" and "schwarz" in win.ck_bg_label.text()
     with section("Was ist neu: nach Versionswechsel erscheint das Fenster einmal, danach"):

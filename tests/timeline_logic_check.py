@@ -202,6 +202,18 @@ p.fx_add("vhs", 50, 1.0, 5.0)
 t.set_project(p, 0, -1, -1, 0)
 assert t._fx_rows == [0, 1] and t._lane_h(5) > h1, (t._fx_rows, h1, t._lane_h(5))
 assert t._lane_y(4) > t._lane_y(5) + t._lane_h(5) - 1e-6, "darunterliegende Spuren müssen nach unten rutschen"
+# 1.4.6: gleichzeitig laufende Bild-in-Bild-Blöcke liegen in eigenen Zeilen, die Spur wird höher
+p.overlays = [OverlayClip("a.mp4", 6.0, 0.0, 6.0, start=1.0)]
+t.set_project(p, 0, -1, 0, -1)
+assert t._ov_rows == [0] and t._ov_row_count() == 1 and t._lane_h(4) == tl.V2_H, (t._ov_rows, t._lane_h(4))
+p.overlays = [OverlayClip("a.mp4", 6.0, 0.0, 6.0, start=1.0), OverlayClip("b.mp4", 6.0, 0.0, 6.0, start=2.0),
+              OverlayClip("c.mp4", 3.0, 0.0, 3.0, start=9.0)]
+t.set_project(p, 0, -1, -1, -1)
+assert t._ov_rows == [0, 1, 0] and t._ov_row_count() == 2 and t._lane_h(4) > tl.V2_H, (t._ov_rows, t._lane_h(4))
+assert t._lane_y(0) > t._lane_y(4) + t._lane_h(4) - 1e-6 or t._lane_y(1) > t._lane_y(4) + t._lane_h(4) - 1e-6, "Spuren darunter rutschen nach unten"
+p.overlays = []
+t.set_project(p, 0, -1, -1, -1)
+assert t._ov_rows == [] and t._lane_h(4) == tl.V2_H
 # Ablegen aus der Effektliste
 class Mime:
     def __init__(s, text="", urls=False): s._t, s._u = text, urls

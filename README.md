@@ -91,6 +91,7 @@ Python 3.12+ und Inno Setup 6 installieren, dann `build.bat` doppelklicken.
 - **Übergänge:** Reiter *Übergänge* (Vorschaubilder entstehen beim ersten Start im Hintergrund). Doppelklick = nach dem gewählten Clip, oder auf eine Schnittstelle ziehen.
 - **Split Screen:** Mehrere Videos als Bild-in-Bild zur selben Zeit auf V2 legen (oder Medien markieren und „Gewählte Medien als Split einfügen“), Layout wählen, „Anwenden“. Technisch bekommt jeder Block ein Feld (`cell`); der Export schneidet das Bild auf das Feld zu.
 - **Geschwindigkeitskurve:** Reiter *Clip*. Punkte als „Position in %:Tempo“, z. B. `0:1, 50:0.25, 100:1`. Der Clip wird in Abschnitte geteilt (`core/speedramp.py`). Seit 1.4.3 lässt sich die Kurve auch zeichnen (`ui/curveeditor.py`, Rechenkern `core/rampgraph.py`).
+- **1.4.6:** Bild-in-Bild-Blöcke, die gleichzeitig laufen, in eigenen Timeline-Zeilen (`Project.overlay_rows`), Chroma-Key-Vorschau (`core/keypreview.py`).
 - **1.4.5:** Lautheit der fertigen Datei wird nachgemessen und angezeigt (`core/loudcheck.py`), eigene Tempokurven speichern, Tempokurve nachträglich ersetzen oder entfernen (`ramp_id` an den Abschnitten, `speedramp.group_of/merge_group`).
 - **1.4.4:** „Was ist neu“-Fenster nach Updates (`core/whatsnew.py`), Chroma-Key für das Hauptvideo mit Hintergrund (`_key_graph` im Exporter), kein Knacken mehr in der Tempokurve.
 - **1.4.3:** Neustart nach Update, Ziel-Lautheit (−14/−16/−23 LUFS), Ton von Bild-in-Bild, „Mehrere Formate exportieren“ (`core/multiexport.py`), Split mit Trennlinie/Ausschnitt/Hauptvideo im Feld, Pipette für den Chroma-Key (`core/colorpick.py`, `ui/pickdialog.py`).
@@ -189,6 +190,6 @@ Clip anklicken → Registerkarte **Clip** → „Übergang zum nächsten Clip“
 - Split Screen: Felder gibt es für Bild-in-Bild-Blöcke; das Hauptvideo kann (Reiter „Split“ → „Hauptvideo im Feld“) das erste oder letzte Feld belegen, sonst liegt es darunter.
 - „Rauschen entfernen“ ist am besten bei gleichmäßigem Rauschen (Rauschen der Kamera, Rauschen aus Lüftern). Wechselnde Geräusche bleiben.
 
-- Nur eine Bild-in-Bild-Spur (V2). Der Ton von Bild-in-Bild-Videos wird nur gemischt, wenn „Ton mischen“ eingeschaltet ist.
+- Bild-in-Bild liegt in einer Spur (V2); gleichzeitige Blöcke werden in bis zu drei Zeilen untereinander gezeigt. Der Ton von Bild-in-Bild-Videos wird nur gemischt, wenn „Ton mischen“ eingeschaltet ist.
 - Chroma-Key gibt es für Bild-in-Bild (V2) und seit 1.4.4 auch für Clips der Hauptspur (Reiter „Clip“, mit Hintergrund). Die Schlüsselfarbe wählst du aus Grün, Blau, dem Farbdialog oder mit der Pipette im Standbild.
 - Die Vorschau mit Effekten wird vorab berechnet (kein Echtzeit-Playback mit Effekten).

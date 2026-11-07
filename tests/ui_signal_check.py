@@ -752,6 +752,8 @@ _ck.key_bg = "/x/hintergrund.png"
 win._show_ck(_ck)
 win._clear_ck_bg()
 assert _ck.key_bg == ""
+_png = win._key_preview_file()
+assert Path(_png).is_file() and Path(_png).stat().st_size > 100, _png
 win._on_ck_toggle(False)
 assert _ck.key_color == ""
 win._load_clip_fields() if hasattr(win, "_load_clip_fields") else None

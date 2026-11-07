@@ -34,6 +34,8 @@ LABEL_W = 108.0
 RULER_H = 28.0
 V_H = 44.0
 V2_H = 34.0
+OV_ROW_H = 22.0         # Höhe einer Zeile, wenn Bild-in-Bild-Blöcke gleichzeitig laufen
+OV_MAX_ROWS = 3
 A_H = 34.0
 GAP = 4.0
 EDGE = 7.0
@@ -61,7 +63,7 @@ class Timeline(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(int(RULER_H + FX_ROW_H * FX_MAX_ROWS + 6 + V2_H + V_H + 3 * A_H + 7 * GAP + 6))
+        self.setMinimumHeight(int(RULER_H + FX_ROW_H * FX_MAX_ROWS + 6 + max(V2_H, OV_ROW_H * OV_MAX_ROWS + 4.0) + V_H + 3 * A_H + 7 * GAP + 6))
         self.setMouseTracking(True)
         self.setAcceptDrops(True)
         self._project = None
@@ -72,6 +74,7 @@ class Timeline(QWidget):
         self._fsel = -1
         self._frects: list[tuple[int, QRectF]] = []
         self._fx_rows: list[int] = []
+        self._ov_rows: list[int] = []
         self._orects: list[tuple[int, QRectF]] = []
         self._waves: dict = {}
         self._vrects: list[QRectF] = []
@@ -91,6 +94,7 @@ class Timeline(QWidget):
         self._osel = overlay_selected
         self._fsel = fx_selected
         self._fx_rows = project.fx_rows(FX_MAX_ROWS) if project is not None else []
+        self._ov_rows = project.overlay_rows(OV_MAX_ROWS) if project is not None else []
         self._clamp_view()
         self.update()
 
@@ -184,9 +188,14 @@ class Timeline(QWidget):
     def _fx_row_count(self) -> int:
         return (max(self._fx_rows) + 1) if self._fx_rows else 1
 
+    def _ov_row_count(self) -> int:
+        return (max(self._ov_rows) + 1) if self._ov_rows else 1
+
     def _lane_h(self, lane: int) -> float:
         if lane == FX_LANE:
             return FX_ROW_H * self._fx_row_count() + 6.0
+        if lane == 4 and self._ov_row_count() > 1:
+            return max(V2_H, OV_ROW_H * self._ov_row_count() + 4.0)
         return V_H if lane == 0 else V2_H if lane == 4 else A_H
 
     def _lane_y(self, lane: int) -> float:
@@ -316,7 +325,11 @@ class Timeline(QWidget):
             x1 = self._x(o.start + o.length)
             if x1 <= x0:
                 continue
-            r = QRectF(x0, oy, max(6.0, x1 - x0), V2_H)
+            if self._ov_row_count() > 1:                        # gleichzeitige Blöcke: eine Zeile je Block
+                row = self._ov_rows[oi] if oi < len(self._ov_rows) else 0
+                r = QRectF(x0, oy + 2.0 + row * OV_ROW_H, max(6.0, x1 - x0), OV_ROW_H - 2.0)
+            else:
+                r = QRectF(x0, oy, max(6.0, x1 - x0), V2_H)
             self._orects.append((oi, r))
             p.setBrush(QColor(OV_COLOR))
             p.setPen(QPen(QColor(ACCENT), 3) if oi == self._osel else Qt.PenStyle.NoPen)
@@ -622,6 +635,7 @@ class Timeline(QWidget):
         elif d["mode"] == "trim_r":
             end = self._snap(d["start"] + (d["out"] - d["in"]) / sp + dt, pts)
             o.out_pt = min(max(d["in"] + 0.05, d["in"] + (end - d["start"]) * sp), o.duration)
+        self._ov_rows = self._project.overlay_rows(OV_MAX_ROWS)
         self.overlay_edited.emit(d["idx"])
         self.update()
 

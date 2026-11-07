@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from .. import paths
 from ..core import effects as fx
-from ..core import audiomix, loudcheck, whatsnew, diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
+from ..core import audiomix, keypreview, loudcheck, whatsnew, diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
 from ..core.history import History
 from ..core.fontcheck import missing_chars
 from ..core.helptext import help_html
@@ -1533,9 +1533,12 @@ class MainWindow(QMainWindow):
         self.ck_bg_label.setStyleSheet(f"color: {MUTED};")
         self.ck_bg_btn = QPushButton("Hintergrund wählen …")
         self.ck_bg_clear = QPushButton("Entfernen")
+        self.ck_prev = QPushButton("Vorschau …")
+        self.ck_prev.setToolTip("Zeigt ein Bild aus der Mitte des Clips mit Key und Hintergrund, so wie es im Export aussieht.")
         bgrow.addWidget(self.ck_bg_btn)
         bgrow.addWidget(self.ck_bg_clear)
         form.addRow(bgrow)
+        form.addRow(self.ck_prev)
         form.addRow(self.ck_bg_label)
         self.ck_on.toggled.connect(self._on_ck_toggle)
         self.ck_green.clicked.connect(lambda *_: self._set_ck_color("#00ff00"))
@@ -1547,6 +1550,7 @@ class MainWindow(QMainWindow):
         self.ck_spill.toggled.connect(self._on_ck_field)
         self.ck_bg_btn.clicked.connect(self._pick_ck_bg)
         self.ck_bg_clear.clicked.connect(self._clear_ck_bg)
+        self.ck_prev.clicked.connect(lambda *_: self.show_key_preview())
         self.clip_trans = QComboBox()
         self.clip_trans.addItem("– harter Schnitt –", "")
         for t in presets.load("transitions"):
@@ -2857,6 +2861,41 @@ class MainWindow(QMainWindow):
         dlg = PickDialog(png, self)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.color:
             self._set_ck_color(dlg.color)
+
+    def _key_preview_file(self) -> str:
+        """Rechnet das Vorschaubild des Chroma-Keys für den gewählten Clip und gibt den Pfad der PNG-Datei zurück."""
+        c = self._selected_clip()
+        if c is None:
+            raise RuntimeError("Kein Clip gewählt.")
+        import tempfile
+        d = Path(tempfile.mkdtemp(prefix="fate_keyview_"))
+        self._tmp_dirs.append(d)
+        png = str(d / "key.png")
+        keypreview.render(c, png, height=360)
+        return png
+
+    def show_key_preview(self) -> bool:
+        """Zeigt das Vorschaubild in einem kleinen Fenster."""
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            png = self._key_preview_file()
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Vorschau", f"Die Vorschau konnte nicht erstellt werden:\n{exc}")
+            return False
+        finally:
+            QApplication.restoreOverrideCursor()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Chroma-Key – Vorschau")
+        lay = QVBoxLayout(dlg)
+        label = QLabel()
+        label.setPixmap(QPixmap(png))
+        lay.addWidget(label)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        self._key_preview_dialog = dlg
+        dlg.exec()
+        return True
 
     def _pick_ck_bg(self) -> None:
         c = self._selected_clip()

@@ -1,5 +1,10 @@
 # Änderungen
 
+## 1.4.6
+- **Gleichzeitige Bild-in-Bild-Blöcke in eigenen Zeilen**: Blöcke, die zur gleichen Zeit laufen (z. B. beim Split Screen oder bei mehreren Bild-in-Bild-Videos übereinander), liegen in der Timeline jetzt in bis zu drei Zeilen untereinander und verdecken sich nicht mehr; die Spur wird dann höher. Ein einzelner Block sieht aus wie bisher. Der Export konnte schon immer mehrere Blöcke gleichzeitig; neu ist die Anzeige und die Auswahl per Klick.
+- **Chroma-Key-Vorschau** (Reiter „Clip“, Knopf „Vorschau …“): zeigt ein Bild aus der Mitte des Clips mit Key und Hintergrund, so wie der Export es rechnet (auch für Standbilder). Der Clip selbst bleibt dabei unverändert.
+- Neue Tests: `test_overlay_rows.py`, `test_key_preview.py`; erweiterte Timeline-, Signal- und Oberflächenprüfungen.
+
 ## 1.4.5
 - **Lautheit nach dem Export gemessen**: Nach jedem Export zeigt das Programm die tatsächliche Lautheit der fertigen Datei an, z. B. „Lautheit: −13,2 LUFS (Ziel −14,0)“ (Statuszeile und Abschlussfenster; bei „Mehrere Formate“ einmal). Gemessen wird die Datei selbst (EBU R128), nicht geschätzt. Das Angleichen bleibt ein Durchgang und landet etwa 1 LU über dem Ziel; jetzt siehst du es.
 - **Eigene Tempokurven speichern**: Im Reiter „Clip“ die Kurve mit „Kurve speichern …“ unter einem Namen sichern. Sie erscheint in der Vorlagenliste mit ★ (bis zu 20, gleicher Name ersetzt), „Gespeicherte löschen“ entfernt sie.

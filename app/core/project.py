@@ -384,6 +384,27 @@ class Project:
                     rows[i] = max_rows - 1
         return rows
 
+    def overlay_rows(self, max_rows: int = 3) -> list[int]:
+        """Zeile (0, 1, 2 …) für jedes Bild-in-Bild, damit sich gleichzeitig laufende Blöcke (z. B. beim Split) nicht verdecken."""
+        order = sorted(range(len(self.overlays)), key=lambda i: (self.overlays[i].start, i))
+        row_end: list[float] = []
+        rows = [0] * len(self.overlays)
+        for i in order:
+            o = self.overlays[i]
+            s, t = o.start, o.start + o.length
+            for r, end in enumerate(row_end):
+                if s >= end - 1e-6:
+                    row_end[r] = t
+                    rows[i] = r
+                    break
+            else:
+                if len(row_end) < max_rows:
+                    row_end.append(t)
+                    rows[i] = len(row_end) - 1
+                else:
+                    rows[i] = max_rows - 1
+        return rows
+
     def clip_index(self, uid: str) -> int:
         for i, c in enumerate(self.clips):
             if c.uid == uid:
