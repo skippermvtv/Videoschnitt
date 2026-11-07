@@ -576,20 +576,22 @@ def main() -> int:
     from app.core import rampgraph as _rg
     cur = win.ramp_curve
     cur.resize(400, 160)
+    CW, CH = cur.width(), cur.height()          # tatsächliche Größe (das Layout kann sie ändern)
+    assert CW > 50 and CH > 50, (CW, CH)
     win.ramp_text.setText("0:1, 50:0.25, 100:1")
     assert len(cur.points()) == 3, cur.points()
-    mx, my = _rg.to_px(cur.points()[1], 400, 160)
+    mx, my = _rg.to_px(cur.points()[1], CW, CH)
     _QT.mousePress(cur, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, _QP(int(mx), int(my)))
-    ux, uy = _rg.to_px([70, 2.0], 400, 160)
+    ux, uy = _rg.to_px([70, 2.0], CW, CH)
     _QT.mouseMove(cur, _QP(int(ux), int(uy)))
     _QT.mouseRelease(cur, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, _QP(int(ux), int(uy)))
     pts_now = _rg.rounded(cur.points())
     assert 66 < pts_now[1][0] < 74 and 1.7 < pts_now[1][1] < 2.4, pts_now
     assert win.ramp_text.text().startswith("0:1, ") and len(win.ramp_text.text().split(",")) == 3, win.ramp_text.text()
-    ax, ay = _rg.to_px([20, 0.5], 400, 160)
+    ax, ay = _rg.to_px([20, 0.5], CW, CH)
     _QT.mouseDClick(cur, _Qt.MouseButton.LeftButton, _Qt.KeyboardModifier.NoModifier, _QP(int(ax), int(ay)))
     assert len(cur.points()) == 4 and len(win.ramp_text.text().split(",")) == 4, (cur.points(), win.ramp_text.text())
-    ax, ay = _rg.to_px(cur.points()[1], 400, 160)
+    ax, ay = _rg.to_px(cur.points()[1], CW, CH)
     _QT.mouseClick(cur, _Qt.MouseButton.RightButton, _Qt.KeyboardModifier.NoModifier, _QP(int(ax), int(ay)))
     assert len(cur.points()) == 3 and len(win.ramp_text.text().split(",")) == 3, (cur.points(), win.ramp_text.text())
     cur.grab()                                  # Zeichnen darf nicht abstürzen

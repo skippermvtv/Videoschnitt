@@ -1490,8 +1490,8 @@ class MainWindow(QMainWindow):
         self.ck_blue = QPushButton("Blau")
         self.ck_eye = QPushButton("Pipette …")
         self.ck_pick = QPushButton("Andere Farbe …")
-        for w in (self.ck_swatch, self.ck_green, self.ck_blue, self.ck_eye):
-            ckrow.addWidget(w)
+        for ck_w in (self.ck_swatch, self.ck_green, self.ck_blue, self.ck_eye):     # nicht „w“: das ist die Seite des Reiters
+            ckrow.addWidget(ck_w)
         ckrow.addWidget(self.ck_pick, 1)
         form.addRow(ckrow)
         self.ck_sim = QDoubleSpinBox()

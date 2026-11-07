@@ -105,6 +105,20 @@ check(_upd.installer_args("S.exe")[-1] != "/LOG=None", "ohne Protokoll kein /LOG
 check("fonts" in wf and "presets" in wf, "Workflow packt fonts/presets nicht ein")
 check('"CHANGELOG.md;."' in wf, "Workflow packt CHANGELOG.md nicht ein (Was-ist-neu-Fenster)")
 check('"CHANGELOG.md;."' in (ROOT / "build.bat").read_text(encoding="utf-8"), "build.bat packt CHANGELOG.md nicht ein")
+# Reiter-Aufbau: die Variable der Seite (z. B. „w“) darf in der Funktion nicht umgebunden werden (z. B. durch „for w in …“),
+# sonst gibt die Funktion ein falsches Widget zurück und das Layout wird gelöscht („already deleted“, nur mit echtem Qt sichtbar)
+import ast  # noqa: E402
+_tree = ast.parse((ROOT / "app" / "ui" / "main_window.py").read_text(encoding="utf-8"))
+for _cls in (n for n in _tree.body if isinstance(n, ast.ClassDef)):
+    for _fn in (n for n in _cls.body if isinstance(n, ast.FunctionDef) and n.name.startswith("_build_") and n.name.endswith("_tab")):
+        _rets = [r.value.id for r in ast.walk(_fn) if isinstance(r, ast.Return) and isinstance(r.value, ast.Name)]
+        check(bool(_rets), f"{_fn.name}: gibt keine Seite zurück")
+        _page, _binds = _rets[-1], []
+        for _n in ast.walk(_fn):
+            _tg = (_n.targets if isinstance(_n, ast.Assign) else [_n.target] if isinstance(_n, (ast.For, ast.AugAssign)) else
+                   [i.optional_vars for i in _n.items if i.optional_vars] if isinstance(_n, ast.With) else [])
+            _binds += [_n.lineno for _t in _tg for _x in ast.walk(_t) if isinstance(_x, ast.Name) and _x.id == _page]
+        check(len(_binds) == 1, f"{_fn.name}: Seitenvariable „{_page}“ wird mehrfach belegt (Zeilen {sorted(_binds)})")
 print("OK  Workflow und Installer")
 
 # Version und Doku
