@@ -7,7 +7,9 @@ from .. import paths
 
 DEFAULTS = {"preview_len": 8.0, "preview_height": 360, "hw_encode": False, "live_preview": True, "live_len": 6.0,
             # Oberfläche (1.4.2): wird beim Beenden gespeichert und beim Start wiederhergestellt
-            "ui_locked": [], "ui_zoom": 1.0, "ui_hsplit": [], "ui_vsplit": [], "ui_tab": 0}
+            "ui_locked": [], "ui_zoom": 1.0, "ui_hsplit": [], "ui_vsplit": [], "ui_tab": 0,
+            # „Was ist neu“ (1.4.4): zuletzt gestartete Version, Fenster abschaltbar
+            "last_version": "", "whatsnew_off": False}
 
 
 def clean_ui(raw: dict, n_lanes: int, n_tabs: int, max_zoom: float) -> dict:
@@ -28,6 +30,14 @@ def clean_ui(raw: dict, n_lanes: int, n_tabs: int, max_zoom: float) -> dict:
 
 def _file():
     return paths.user_dir() / "settings.json"
+
+
+def exists() -> bool:
+    """Gibt es schon eine Einstellungsdatei (also wurde das Programm schon einmal benutzt)?"""
+    try:
+        return _file().is_file()
+    except OSError:
+        return False
 
 
 def load() -> dict:

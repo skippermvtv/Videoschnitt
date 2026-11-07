@@ -53,5 +53,9 @@ for name, pts in [("langsam", [[0, 1], [40, 1], [55, 0.3], [70, 1], [100, 2]]), 
     if g:
         print("FEHLER: Tonlücken", name, g)
         sys.exit(1)
-    print(f"OK  {name}: {len(x) / 48000:.2f} s, keine Tonlücken")
+    check = lambda c, m: (print("FEHLER:", m), sys.exit(1)) if not c else None  # noqa: E731
+    d2 = np.abs(np.diff(x, 2))
+    body = d2[: int((len(x) / 48000 - 0.3) * 48000)]                    # ohne das Dateiende
+    check(float(body.max()) < 0.05, f"{name}: Knacken an einer Schnittstelle (2. Differenz {body.max():.3f}, reiner Sinus ~0.008)")
+    print(f"OK  {name}: {len(x) / 48000:.2f} s, keine Tonlücken, kein Knacken (max {body.max():.4f})")
 print("ALLES OK")

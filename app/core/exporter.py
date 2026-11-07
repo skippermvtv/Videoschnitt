@@ -97,12 +97,81 @@ def chromakey_filters(o) -> str:
     return out
 
 
+def _key_graph(c: Clip, i: int, W: int, H: int, fps, key: str) -> list[str]:
+    """Hauptvideo mit Chroma-Key über seinen Hintergrund legen: [v{i}g] (Bild nach Korrektur) → [v{i}].
+    Der Hintergrund kommt per movie-Filter aus der Datei (Video läuft in Schleife, Bild wird gehalten) oder ist schwarz."""
+    from .project import is_image_path
+    bg = (c.key_bg or "").strip()
+    if bg and Path(bg).is_file():
+        if is_image_path(bg):
+            src = f"movie='{_esc_path(bg)}',loop=loop=-1:size=1,setpts=N/({fps}*TB)"
+        else:
+            src = f"movie='{_esc_path(bg)}':loop=0,setpts=N/(FRAME_RATE*TB)"      # PTS-STARTPTS würde bei der Schleife hängen
+        back = f"{src},fps={fps},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,format=rgba[kb{i}]"
+    else:
+        back = f"color=c=black:s={W}x{H}:r={fps},format=rgba[kb{i}]"
+    return [back,
+            f"[v{i}g]format=rgba,{key},format=rgba[kf{i}]",
+            f"[kb{i}][kf{i}]overlay=shortest=1:format=auto,format=yuv420p[v{i}]"]
+
+
+GRAPH_INLINE_MAX = 8000     # längere Filtergraphen kommen in eine Datei (Windows erlaubt nur ~32 000 Zeichen je Befehl)
+_script_flag_cache: list[str | None] = []
+
+
+def _script_flag() -> str | None:
+    """Wie liest dieses FFmpeg einen Filtergraphen aus einer Datei? Neuere Versionen: „-/filter_complex“; ältere (bis 6.x):
+    „-filter_complex_script“ (in neuesten Builds entfernt). Das wird einmal mit einem winzigen Graphen ausprobiert."""
+    if _script_flag_cache:
+        return _script_flag_cache[0]
+    found = None
+    d = Path(tempfile.mkdtemp(prefix="clipforge_probe_"))
+    try:
+        g = d / "g.txt"
+        g.write_text("[0:v]null[o]", encoding="utf-8")
+        for flag in ("-/filter_complex", "-filter_complex_script"):
+            try:
+                r = subprocess.run([find_binary("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", "color=d=0.1:s=16x16", flag, str(g),
+                                    "-map", "[o]", "-f", "null", "-"], capture_output=True, timeout=30,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if r.returncode == 0:
+                found = flag
+                break
+    finally:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+    _script_flag_cache.append(found)
+    return found
+
+
+def _filter_args(graph: str, tmp: Path) -> list[str]:
+    """Filtergraph für den Befehl: kurz direkt, lang (z. B. Tempokurve mit vielen Abschnitten) über eine Datei."""
+    if len(graph) > GRAPH_INLINE_MAX:
+        flag = _script_flag()
+        if flag:
+            f = tmp / "filtergraph.txt"
+            f.write_text(graph, encoding="utf-8")
+            return [flag, str(f)]
+    return ["-filter_complex", graph]
+
+
 def _esc_path(p: str) -> str:
     """Pfad für FFmpeg-Filteroptionen (Windows: C:\\x → C\\:/x)."""
     return p.replace("\\", "/").replace(":", "\\:").replace("'", r"\'")
 
 
+JOIN_FADE = 0.004        # Sekunden Ein-/Ausblendung an Tempowechsel-Schnitten (Tempokurve)
 AUDIO_MARGIN = 0.15      # Sekunden Ton-Zugabe hinter dem Clip, wenn atempo benutzt wird (siehe unten)
+
+
+def _tempo_join(a, b) -> bool:
+    """Läuft b direkt hinter a in derselben Aufnahme weiter und wird mindestens eines der beiden mit atempo gedehnt? (Tempokurve)
+    Auch bei gleichem Tempo: atempo beginnt in jedem Stück neu, die Schwingungen schließen nicht aneinander an."""
+    return (a.path == b.path and not a.is_image and not b.is_image and not a.reverse and not b.reverse
+            and abs(a.out_pt - b.in_pt) < 0.002
+            and (abs(a.speed - 1.0) > 1e-3 or abs(b.speed - 1.0) > 1e-3))
 
 
 def _atempo_chain(speed: float) -> str:
@@ -361,7 +430,12 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
         if motion:
             graph.append(f"[l{i}]{motion}[l{i}m]")
             src = f"l{i}m"
-        graph.append(grade.apply_label(src, f"v{i}", c.grade))   # Licht/Kontrast/Farbe pro Clip
+        key = chromakey_filters(c)
+        if key:                                                   # Greenscreen auf dem Hauptvideo: Hintergrund scheint durch
+            graph.append(grade.apply_label(src, f"v{i}g", c.grade))
+            graph += _key_graph(c, i, W, H, fps, key)
+        else:
+            graph.append(grade.apply_label(src, f"v{i}", c.grade))   # Licht/Kontrast/Farbe pro Clip
 
         out_len = span / sp
         if c.has_audio and not c.mute and not c.audio_detached and not c.is_image:
@@ -382,6 +456,18 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
                 # Länge = Bildanzahl/fps: ist der Ton kürzer als das Bild, füllt concat die Lücke mit Stille (hörbarer Aussetzer).
                 seg = frame_n[i] / fps
                 a += f",atrim=duration={seg:.5f},apad=whole_dur={seg:.5f}"
+            # Bei Tempowechsel passen die Schwingungen an der Schnittstelle nicht aneinander (Knacken): ein paar Millisekunden
+            # aus- bzw. einblenden. Vorher wird die Länge auf die Bildlänge gebracht, damit die Blende am Ende sitzt.
+            _fin = i > 0 and _tempo_join(project.clips[i - 1], c)
+            _fout = i + 1 < len(project.clips) and _tempo_join(c, project.clips[i + 1])
+            if _fin or _fout:
+                seg_a = frame_n[i] / fps
+                if not tempo_audio:
+                    a += f",atrim=duration={seg_a:.5f},apad=whole_dur={seg_a:.5f}"
+                if _fin:
+                    a += f",afade=t=in:st=0:d={JOIN_FADE}"
+                if _fout:
+                    a += f",afade=t=out:st={max(0.0, seg_a - JOIN_FADE):.5f}:d={JOIN_FADE}"
             a += f",asetpts=PTS-STARTPTS[a{i}]"
         else:
             a = (f"anullsrc=r=48000:cl=stereo,atrim=duration={out_len:.3f},"
@@ -512,7 +598,7 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
     cmd += extra_cmd
     graph += audio_graph
 
-    cmd += ["-filter_complex", ";".join(graph), "-map", "[vout]", "-map", "[aout]",
+    cmd += [*_filter_args(";".join(graph), tmp), "-map", "[vout]", "-map", "[aout]",
             *video_codec_args(exp, draft, use_hw)[0], "-pix_fmt", "yuv420p", "-r", str(fps),
             "-c:a", "aac", "-b:a", f"{exp.get('audio_kbps', 192)}k",
             "-movflags", "+faststart"]

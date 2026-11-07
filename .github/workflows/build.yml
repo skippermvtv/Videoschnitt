@@ -81,6 +81,8 @@ jobs:
           T tests/test_speedramp.py $env:RUNNER_TEMP
           T tests/test_ramp_audio.py $env:RUNNER_TEMP
           T tests/test_rampgraph.py
+          T tests/test_whatsnew.py
+          T tests/test_key_main.py $env:RUNNER_TEMP
           T tests/test_loudness.py $env:RUNNER_TEMP
           T tests/test_overlay_audio.py $env:RUNNER_TEMP
           T tests/test_multiexport.py $env:RUNNER_TEMP
@@ -110,6 +112,7 @@ jobs:
             --add-data "presets;presets" `
             --add-data "assets;assets" `
             --add-data "THIRD_PARTY.txt;." `
+            --add-data "CHANGELOG.md;." `
             --add-data "fonts;fonts" `
             --add-data "vendor/ffmpeg;vendor/ffmpeg" `
             main.py

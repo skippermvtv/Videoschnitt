@@ -38,6 +38,8 @@ TIPS = [
     "Übergänge: Im Reiter „Übergänge“ eine Vorlage doppelklicken (kommt nach dem gewählten Clip) oder auf die Schnittstelle zwischen zwei Clips ziehen. „Auf alle Clips“ setzt ihn überall.",
     "Split Screen: Mehrere Videos als Bild-in-Bild zur selben Zeit auf V2 legen, im Reiter „Split“ ein Layout wählen und „Anwenden“ klicken. Oder in der Medienliste Videos markieren und „Gewählte Medien als Split einfügen“.",
     "Geschwindigkeitskurve: Im Reiter „Clip“ eine Vorlage wählen (z. B. „Zeitlupe in der Mitte“) oder die Kurve zeichnen: Punkte ziehen (senkrecht = Tempo, waagerecht = Stelle im Clip), Doppelklick = neuer Punkt, Rechtsklick = Punkt entfernen. Eintippen geht auch (Position in %:Tempo). „Kurve anwenden“ teilt den Clip in Abschnitte. Strg+Z macht es rückgängig.",
+    "Greenscreen im Hauptvideo: Im Reiter „Clip“ unter „Chroma-Key“ einschalten, Farbe wählen (Pipette zeigt ein Bild des Clips) und mit „Hintergrund wählen …“ ein Bild oder Video dahinterlegen; ohne Hintergrund ist es schwarz.",
+    "Nach einem Update zeigt das Programm einmal, was sich geändert hat. Das Fenster lässt sich dort abschalten.",
     "Mehrere Formate auf einmal: „Datei → Mehrere Formate exportieren …“ (Strg+Umschalt+E), Formate ankreuzen, Ordner wählen – alle werden nacheinander exportiert.",
     "Pipette: Beim Chroma-Key „Pipette …“ klicken, im Standbild auf den Hintergrund klicken – die Schlüsselfarbe wird übernommen. Split: Abstand, Trennlinie, Bildausschnitt und Hauptvideo im Feld stehen im Reiter „Split“ und bei „Bild-in-Bild“.",
     "Ton von Bild-in-Bild-Videos: im Reiter „Bild-in-Bild“ „Ton mischen“ einschalten. „Lautheit angleichen“ (Reiter „Ton“) hat wählbare Ziele (−14, −16, −23 LUFS).",

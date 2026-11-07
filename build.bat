@@ -17,7 +17,7 @@ if not exist vendor\ffmpeg\ffmpeg.exe (
   powershell -NoProfile -Command "Invoke-WebRequest 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip' -OutFile ffmpeg.zip; Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_tmp -Force; $e = Get-ChildItem ffmpeg_tmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1; Copy-Item $e.FullName vendor\ffmpeg\; Copy-Item (Join-Path $e.DirectoryName 'ffprobe.exe') vendor\ffmpeg\"
 )
 
-pyinstaller --noconfirm --clean --windowed --name FATE-VIDEOSCHNITT --icon assets\icon.ico --add-data "presets;presets" --add-data "assets;assets" --add-data "THIRD_PARTY.txt;." --add-data "fonts;fonts" --add-data "vendor/ffmpeg;vendor/ffmpeg" main.py || (echo PyInstaller fehlgeschlagen & pause & exit /b 1)
+pyinstaller --noconfirm --clean --windowed --name FATE-VIDEOSCHNITT --icon assets\icon.ico --add-data "presets;presets" --add-data "assets;assets" --add-data "THIRD_PARTY.txt;." --add-data "CHANGELOG.md;." --add-data "fonts;fonts" --add-data "vendor/ffmpeg;vendor/ffmpeg" main.py || (echo PyInstaller fehlgeschlagen & pause & exit /b 1)
 
 set ISCC="C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 if exist %ISCC% (

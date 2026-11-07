@@ -127,6 +127,12 @@ class Clip:
     stabilize: int = 0             # Videostabilisierung 0 (aus) … 100 (stark), siehe core/stabilize.py
     denoise: int = 0               # Rauschen entfernen 0 … 100, siehe core/audiofix.py
     voice: int = 0                 # Sprache klarer 0 … 100
+    # Chroma-Key für das Hauptvideo (1.4.4): wie beim Bild-in-Bild; key_bg = Bild/Video, das durch die Lücken scheint
+    key_color: str = ""            # "" = aus, sonst "#RRGGBB"
+    key_similarity: float = 30.0
+    key_blend: float = 20.0
+    key_spill: bool = True
+    key_bg: str = ""               # Hintergrunddatei (Bild oder Video); leer = schwarz
 
     def __post_init__(self):
         if not self.out_pt:

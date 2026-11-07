@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from .. import paths
 from ..core import effects as fx
-from ..core import diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
+from ..core import whatsnew, diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
 from ..core.history import History
 from ..core.fontcheck import missing_chars
 from ..core.helptext import help_html
@@ -34,6 +34,7 @@ from .maskcanvas import MaskCanvas
 from .navtabs import NavTabs
 from .theme import BRAND, MUTED
 from .curveeditor import SpeedCurveEditor
+from .whatsnewdialog import WhatsNewDialog
 from .timeline import FX_MIME, MEDIA_MIME, TITLE_MIME, TRANS_MIME, Timeline
 from .workers import TransThumbWorker, StabilizeWorker, TrackWorker, FrameWorker, ThumbWorker, ExportWorker, GradePreviewWorker, UpdateCheckWorker, UpdateDownloadWorker, WaveformWorker, AsrWorker, WhisperSetupWorker, DiagnoseWorker
 
@@ -221,9 +222,37 @@ class MainWindow(QMainWindow):
         self._autosave_timer.start()
         if self._ask_on_close:
             QTimer.singleShot(900, self._offer_restore)
+            QTimer.singleShot(1500, self._check_whats_new)
         QTimer.singleShot(600, self._start_trans_thumbs)
         if updater.configured():
             QTimer.singleShot(2500, lambda: self.check_updates(silent=True))
+
+    # ------------------------------------------------------------ Was ist neu
+    def _changelog_text(self) -> str:
+        for base in (paths.bundle_dir(), paths.bundle_dir().parent):
+            f = base / "CHANGELOG.md"
+            try:
+                if f.is_file():
+                    return f.read_text(encoding="utf-8")
+            except OSError:
+                pass
+        return ""
+
+    def _check_whats_new(self, force: bool = False) -> bool:
+        """Nach einem Versionswechsel die Änderungen zeigen. Gibt zurück, ob das Fenster gezeigt wurde."""
+        st = settings.load()
+        existed = settings.exists()
+        items = whatsnew.decide(st.get("last_version", ""), VERSION, existed, self._changelog_text())
+        if st.get("last_version") != VERSION:
+            settings.save({"last_version": VERSION})
+        if not items or (st.get("whatsnew_off") and not force):
+            return False
+        dlg = WhatsNewDialog(APP_NAME, VERSION, whatsnew.to_html(items), self)
+        self._whatsnew_dialog = dlg
+        dlg.exec()
+        if dlg.off.isChecked():
+            settings.save({"whatsnew_off": True})
+        return True
 
     # ------------------------------------------------------------ Schriften
     def _load_fonts(self) -> None:
@@ -1450,6 +1479,52 @@ class MainWindow(QMainWindow):
         form.addRow("Punkte", self.ramp_text)
         form.addRow(self.ramp_info)
         form.addRow(btn_ramp)
+        # --- Chroma-Key auf dem Hauptvideo (1.4.4)
+        form.addRow(QLabel("Chroma-Key (Greenscreen im Hauptvideo)"))
+        self.ck_on = QCheckBox("Hintergrundfarbe entfernen")
+        form.addRow(self.ck_on)
+        ckrow = QHBoxLayout()
+        self.ck_swatch = QLabel("")
+        self.ck_swatch.setFixedSize(28, 18)
+        self.ck_green = QPushButton("Grün")
+        self.ck_blue = QPushButton("Blau")
+        self.ck_eye = QPushButton("Pipette …")
+        self.ck_pick = QPushButton("Andere Farbe …")
+        for w in (self.ck_swatch, self.ck_green, self.ck_blue, self.ck_eye):
+            ckrow.addWidget(w)
+        ckrow.addWidget(self.ck_pick, 1)
+        form.addRow(ckrow)
+        self.ck_sim = QDoubleSpinBox()
+        self.ck_sim.setRange(0.0, 100.0)
+        self.ck_sim.setSingleStep(5.0)
+        self.ck_sim.setSuffix(" %")
+        self.ck_blend = QDoubleSpinBox()
+        self.ck_blend.setRange(0.0, 100.0)
+        self.ck_blend.setSingleStep(5.0)
+        self.ck_blend.setSuffix(" %")
+        self.ck_spill = QCheckBox("Farbsaum entfernen")
+        form.addRow("Toleranz", self.ck_sim)
+        form.addRow("Weiche Kante", self.ck_blend)
+        form.addRow(self.ck_spill)
+        bgrow = QHBoxLayout()
+        self.ck_bg_label = QLabel("Hintergrund: schwarz")
+        self.ck_bg_label.setStyleSheet(f"color: {MUTED};")
+        self.ck_bg_btn = QPushButton("Hintergrund wählen …")
+        self.ck_bg_clear = QPushButton("Entfernen")
+        bgrow.addWidget(self.ck_bg_btn)
+        bgrow.addWidget(self.ck_bg_clear)
+        form.addRow(bgrow)
+        form.addRow(self.ck_bg_label)
+        self.ck_on.toggled.connect(self._on_ck_toggle)
+        self.ck_green.clicked.connect(lambda *_: self._set_ck_color("#00ff00"))
+        self.ck_blue.clicked.connect(lambda *_: self._set_ck_color("#0000ff"))
+        self.ck_pick.clicked.connect(self._pick_ck_color)
+        self.ck_eye.clicked.connect(self._pick_ck_from_frame)
+        self.ck_sim.valueChanged.connect(self._on_ck_field)
+        self.ck_blend.valueChanged.connect(self._on_ck_field)
+        self.ck_spill.toggled.connect(self._on_ck_field)
+        self.ck_bg_btn.clicked.connect(self._pick_ck_bg)
+        self.ck_bg_clear.clicked.connect(self._clear_ck_bg)
         self.clip_trans = QComboBox()
         self.clip_trans.addItem("– harter Schnitt –", "")
         for t in presets.load("transitions"):
@@ -2672,8 +2747,110 @@ class MainWindow(QMainWindow):
         self.clip_trans_dur.setEnabled(not last)
         self.clip_trans_note.setVisible(last)
         self._loading = False
+        self._show_ck(c)
         self._load_grade_fields()
         self._load_motion_fields()
+
+    # -- Chroma-Key auf dem Hauptvideo
+    def _selected_clip(self):
+        return self.project.clips[self.sel] if 0 <= self.sel < len(self.project.clips) else None
+
+    def _show_ck(self, c) -> None:
+        """Zeigt die Key-Einstellungen des Clips (ruft keine Handler auf)."""
+        was = self._loading
+        self._loading = True
+        valid = exporter.chromakey_filters(c) != ""
+        col = (c.key_color or "").strip()
+        self.ck_on.setChecked(valid)
+        self.ck_swatch.setStyleSheet(
+            f"background: {('#' + col.lstrip('#')) if valid else 'transparent'}; border: 1px solid #2c313d; border-radius: 3px;")
+        self.ck_sim.setValue(c.key_similarity)
+        self.ck_blend.setValue(c.key_blend)
+        self.ck_spill.setChecked(c.key_spill)
+        bg = (c.key_bg or "").strip()
+        self.ck_bg_label.setText(f"Hintergrund: {Path(bg).name}" if bg else "Hintergrund: schwarz")
+        for w in (self.ck_green, self.ck_blue, self.ck_pick, self.ck_eye, self.ck_sim, self.ck_blend, self.ck_spill,
+                  self.ck_bg_btn, self.ck_bg_clear):
+            w.setEnabled(True)
+        self._loading = was
+
+    def _ck_changed(self, c) -> None:
+        self._show_ck(c)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
+        self._update_duration()
+
+    def _set_ck_color(self, color: str) -> None:
+        c = self._selected_clip()
+        if self._loading or c is None:
+            return
+        c.key_color = color.lower()
+        self._ck_changed(c)
+
+    def _on_ck_toggle(self, on: bool) -> None:
+        c = self._selected_clip()
+        if self._loading or c is None:
+            return
+        if not on:
+            c.key_color = ""
+        elif exporter.chromakey_filters(c) == "":
+            c.key_color = "#00ff00"
+        self._ck_changed(c)
+
+    def _on_ck_field(self, *_args) -> None:
+        c = self._selected_clip()
+        if self._loading or c is None:
+            return
+        c.key_similarity = self.ck_sim.value()
+        c.key_blend = self.ck_blend.value()
+        c.key_spill = self.ck_spill.isChecked()
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
+
+    def _pick_ck_color(self) -> None:
+        c = self._selected_clip()
+        if c is None:
+            return
+        start = QColor(c.key_color) if exporter.chromakey_filters(c) else QColor("#00ff00")
+        col = QColorDialog.getColor(start, self, "Schlüsselfarbe wählen")
+        if col.isValid():
+            self._set_ck_color(col.name())
+
+    def _pick_ck_from_frame(self) -> None:
+        """Pipette: Farbe direkt im Bild des Clips anklicken."""
+        c = self._selected_clip()
+        if c is None:
+            return
+        try:
+            import tempfile
+            from ..core import frames
+            d = tempfile.mkdtemp(prefix="fate_pick_")
+            self._tmp_dirs.append(Path(d))
+            png = str(Path(d) / "pick.png")
+            t = c.in_pt + (0.0 if c.is_image else min(1.0, max(0.0, c.out_pt - c.in_pt) / 2.0))
+            frames.extract_frame(c.path, png, t)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Pipette", f"Das Bild konnte nicht geladen werden:\n{exc}")
+            return
+        from .pickdialog import PickDialog
+        dlg = PickDialog(png, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.color:
+            self._set_ck_color(dlg.color)
+
+    def _pick_ck_bg(self) -> None:
+        c = self._selected_clip()
+        if c is None:
+            return
+        f, _ = QFileDialog.getOpenFileName(self, "Hintergrund wählen (Bild oder Video)", "",
+                                           "Bilder und Videos (*.png *.jpg *.jpeg *.webp *.bmp *.mp4 *.mov *.mkv *.avi *.webm *.m4v);;Alle Dateien (*)")
+        if f:
+            c.key_bg = f
+            self._ck_changed(c)
+
+    def _clear_ck_bg(self) -> None:
+        c = self._selected_clip()
+        if c is None or self._loading:
+            return
+        c.key_bg = ""
+        self._ck_changed(c)
 
     def _on_clip_field(self, *_args) -> None:
         self.clip_vol_label.setText(f"{self.clip_vol.value()} %")

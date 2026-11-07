@@ -103,6 +103,8 @@ check(_a[0] == "C:/x/Setup.exe" and "/SILENT" in _a and "/CLOSEAPPLICATIONS" in 
 check("/RESTARTAPPLICATIONS" not in _a and "/VERYSILENT" not in _a, "falsche Schalter (VERYSILENT würde den Fortschritt verstecken)")
 check(_upd.installer_args("S.exe")[-1] != "/LOG=None", "ohne Protokoll kein /LOG")
 check("fonts" in wf and "presets" in wf, "Workflow packt fonts/presets nicht ein")
+check('"CHANGELOG.md;."' in wf, "Workflow packt CHANGELOG.md nicht ein (Was-ist-neu-Fenster)")
+check('"CHANGELOG.md;."' in (ROOT / "build.bat").read_text(encoding="utf-8"), "build.bat packt CHANGELOG.md nicht ein")
 print("OK  Workflow und Installer")
 
 # Version und Doku

@@ -1,5 +1,14 @@
 # Änderungen
 
+## 1.4.4
+- **„Was ist neu“-Fenster**: Nach einem Update (neue Version beim Start) zeigt das Programm einmal die Änderungen der neuen Version, bei übersprungenen Versionen bis zu vier Abschnitte. Es erscheint nicht bei der Erstinstallation und nicht bei einem Rückschritt auf eine ältere Version; mit „Nicht mehr anzeigen“ lässt es sich abschalten. Der Text kommt aus der CHANGELOG, die jetzt im Programm mitgeliefert wird (`--add-data` in `build.bat` und im Workflow).
+- **Chroma-Key auf dem Hauptvideo** (Reiter „Clip“): Greenscreen-Clip der Hauptspur, Farbe (Grün, Blau, eigene Farbe, Pipette), Toleranz, weiche Kante, Farbsaum. Dahinter scheint ein Hintergrund durch: ein Bild, ein Video (läuft in Schleife) oder Schwarz. Gilt pro Clip und wird beim Teilen (z. B. Tempokurve) mit vererbt. Pixeltest über Bild, Video und Schwarz.
+- **Fehler behoben (Ton, Tempokurve):** An den Grenzen der Abschnitte knackte der Ton, weil `atempo` in jedem Stück neu beginnt. Jetzt werden an solchen Schnittstellen 4 ms aus- und eingeblendet. Gemessen: größter Sprung im Signal gleich wie beim unveränderten Sinuston (vorher 0,25 gegen 0,008).
+- **Fehler behoben (Export unter Windows, vom Build-Server gefunden):** Bei vielen Abschnitten (Tempokurve auf mehreren Clips, Übergänge, Bewegung) wurde der FFmpeg-Befehl länger als Windows erlaubt (`WinError 206: The filename or extension is too long`, Grenze ca. 32 000 Zeichen) und der Export brach ab. Lange Filtergraphen (über 8000 Zeichen) werden jetzt in eine Datei geschrieben (`-/filter_complex` bzw. `-filter_complex_script`, je nach FFmpeg-Version einmal ausprobiert). Neuer Test mit 40 Abschnitten.
+- README: „Bekannte Grenzen“ auf den Stand 1.4.3/1.4.4 gebracht.
+- Nicht umgesetzt: Lautheit in zwei Durchgängen (Bild und Ton hängen im Export in einem Filtergraph, ein reiner Mess-Durchlauf lässt sich nicht sauber abtrennen; Gewinn nur etwa 1 LU).
+- Neue Tests: `test_whatsnew.py`, `test_key_main.py`; `test_ramp_audio.py` prüft jetzt auch das Knacken; erweiterte Signal-, Oberflächen- und Release-Prüfungen.
+
 ## 1.4.3
 - **Neustart nach dem Update**: Nach „Jetzt installieren“ startet das Programm von selbst wieder (Inno-Setup-Eintrag für den stillen Modus). Vorher fragt das Programm, ob ungespeicherte Änderungen gesichert werden sollen. Das Installationsprotokoll liegt in `%TEMP%\FATE-VIDEOSCHNITT-Update.log`. Ob der Neustart klappt, zeigt sich erst beim ersten echten Update (1.4.2 → 1.4.3) auf Windows.
 - **Lautheit angleichen** (Reiter „Ton“): Ziel wählbar (−14 LUFS YouTube/TikTok, −16, −23 Sendenorm). Gemessen mit echtem Export; der Ein-Durchgang-Filter landet etwa 1 LU über dem Ziel (Toleranz im Test 1,5 LU).

@@ -183,4 +183,19 @@ cmd, total, _ = exporter.build_command(pr2, str(out2), draft=True, preview_heigh
 exporter.run(cmd, total)
 check(out2.exists() and abs(probe(str(out2)).duration - pr2.duration) < 0.35, f"Länge mit Übergang: {probe(str(out2)).duration:.2f} / {pr2.duration:.2f}")
 print("OK  Export mit Übergang und Bewegung")
+
+# Windows erlaubt nur ~32 000 Zeichen je Befehl: lange Filtergraphen (viele Abschnitte) müssen über eine Datei laufen
+pr3 = Project(format_id="youtube_16_9", export_id="youtube_1080p")
+pr3.clips = [Clip(str(src), info.duration, has_audio=True, width=info.width, height=info.height) for _ in range(4)]
+for k in range(3, -1, -1):
+    sr.apply(pr3, k, [[0, 2], [50, 0.3], [100, 2]])
+pr3.clips[0].transition, pr3.clips[0].transition_dur = "fade", 0.3
+out3 = tmp / "ramp3.mp4"
+cmd, total, _ = exporter.build_command(pr3, str(out3), draft=True, preview_height=180)
+cmd_len = sum(len(a) + 1 for a in cmd)
+check(len(pr3.clips) >= 40 and cmd_len < 20000, f"Befehl zu lang für Windows: {cmd_len} Zeichen bei {len(pr3.clips)} Clips")
+check("-filter_complex" not in cmd and any(a in ("-/filter_complex", "-filter_complex_script") for a in cmd), "langer Filtergraph gehört in eine Datei")
+exporter.run(cmd, total)
+check(out3.exists() and abs(probe(str(out3)).duration - pr3.duration) < 0.6, f"Länge {probe(str(out3)).duration:.2f} / {pr3.duration:.2f}")
+print(f"OK  Viele Abschnitte: Befehl {cmd_len} Zeichen, Filtergraph in Datei, Export läuft")
 print("ALLES OK")

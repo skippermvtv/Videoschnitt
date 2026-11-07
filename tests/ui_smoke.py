@@ -593,6 +593,28 @@ def main() -> int:
     _QT.mouseClick(cur, _Qt.MouseButton.RightButton, _Qt.KeyboardModifier.NoModifier, _QP(int(ax), int(ay)))
     assert len(cur.points()) == 3 and len(win.ramp_text.text().split(",")) == 3, (cur.points(), win.ramp_text.text())
     cur.grab()                                  # Zeichnen darf nicht abstürzen
+    # Chroma-Key auf dem Hauptvideo
+    win._select_clip(0)
+    win.ck_on.setChecked(True)
+    assert win.project.clips[win.sel].key_color == "#00ff00", win.project.clips[win.sel].key_color
+    win.ck_sim.setValue(55.0)
+    assert win.project.clips[win.sel].key_similarity == 55.0
+    win.ck_blue.click()
+    assert win.project.clips[win.sel].key_color == "#0000ff" and win.ck_on.isChecked()
+    win.ck_on.setChecked(False)
+    assert win.project.clips[win.sel].key_color == "" and "schwarz" in win.ck_bg_label.text()
+    # Was ist neu: nach Versionswechsel erscheint das Fenster einmal, danach nicht mehr
+    from app.core import settings as _st0
+    from app.ui import whatsnewdialog as _wnd
+    _shown = []
+    _wnd.WhatsNewDialog.exec = lambda self: _shown.append(self.browser.toPlainText()) or 0
+    _st0.save({"last_version": "1.0.0", "whatsnew_off": False})
+    assert win._check_whats_new() is True and f"Version {mw.VERSION}" in _shown[0], _shown
+    assert _st0.load()["last_version"] == mw.VERSION
+    assert win._check_whats_new() is False and len(_shown) == 1
+    _st0.save({"last_version": "1.0.0", "whatsnew_off": True})
+    assert win._check_whats_new() is False and len(_shown) == 1
+    _st0.save({"whatsnew_off": False})
     # Oberfläche merken: Werte in die Einstellungen schreiben, wiederherstellen, zurücksetzen
     from app.core import settings as _st
     win.timeline.set_locked([2])

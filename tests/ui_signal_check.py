@@ -695,4 +695,32 @@ win.split_main.setCurrentIndex(0)
 win.split_gap.setValue(0.0)
 no_errors("1.4.3: Split Zusätze")
 print("OK  1.4.3: Split Linie/Hauptvideo/Ausschnitt")
+# 1.4.4: Chroma-Key auf dem Hauptvideo
+win.project.overlays = []
+win.project.clips = win.project.clips[:1]
+win._select_clip(0)
+_ck = win.project.clips[0]
+assert _ck.key_color == "" and _ck.key_bg == ""
+win._on_ck_toggle(True)
+assert _ck.key_color == "#00ff00", _ck.key_color
+win._set_ck_color("#0000FF")
+assert _ck.key_color == "#0000ff"
+_ck.key_bg = "/x/hintergrund.png"
+win._show_ck(_ck)
+win._clear_ck_bg()
+assert _ck.key_bg == ""
+win._on_ck_toggle(False)
+assert _ck.key_color == ""
+win._load_clip_fields() if hasattr(win, "_load_clip_fields") else None
+no_errors("1.4.4: Chroma-Key Hauptvideo")
+print("OK  1.4.4: Chroma-Key Hauptvideo")
+# 1.4.4: Was-ist-neu-Fenster (Logik; das echte Fenster prüft ui_smoke)
+from app.core import settings as _stw  # noqa: E402
+_stw.save({"last_version": "1.0.0", "whatsnew_off": False})
+assert win._check_whats_new() is True
+assert _stw.load()["last_version"] != "1.0.0"
+_stw.save({"last_version": "99.0.0"})
+assert win._check_whats_new() is False
+no_errors("1.4.4: Was ist neu")
+print("OK  1.4.4: Was ist neu")
 print("Signal-Prüfung OK")
