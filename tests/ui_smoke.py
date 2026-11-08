@@ -560,6 +560,48 @@ def main() -> int:
         win.grab()
         win.clear_split()
         assert not any(o.cell for o in win.project.overlays) and win.ov_x.isEnabled()
+    with section("Bild-in-Bild: Keyframes (Vorlage, Punkte, Doppelklick, Rauten, Rückwärts)"):
+        from PySide6.QtCore import QPoint as _P47
+        from PySide6.QtTest import QTest as _QT47
+        from app.core import overlaykeys as _ok47
+        n_ov47 = len(win.project.overlays)
+        win.add_overlay_files([png])
+        assert len(win.project.overlays) == n_ov47 + 1 and win.osel == n_ov47, (len(win.project.overlays), win.osel)
+        o47 = win.project.overlays[win.osel]
+        assert not _ok47.active(o47) and win.ov_x.isEnabled() and not win.ov_kf_del.isEnabled()
+        assert not win.ov_reverse.isEnabled(), "Rückwärts gibt es nicht für Standbilder"
+        win.ov_kf_preset.setCurrentIndex(win.ov_kf_preset.findData("swing"))
+        win.ov_kf_apply.click()
+        assert _ok47.active(o47) and win.ov_kf_pick.count() == 3 and win.ov_kf_del.isEnabled(), win.ov_kf_pick.count()
+        assert not win.ov_x.isEnabled() and not win.ov_opacity.isEnabled(), "feste Werte gesperrt, solange Keyframes laufen"
+        win.ov_kf_pick.setCurrentIndex(1)
+        win.ov_kf_size.setValue(55.0)
+        assert any(abs(k["size"] - 55.0) < 1e-6 for k in o47.keys), o47.keys
+        win.ov_kf_t.setValue(40.0)
+        assert any(abs(k["t"] - 0.4) < 1e-6 for k in o47.keys), o47.keys
+        assert win.ov_kf_pick.currentIndex() == 1 and abs(win.ov_kf_t.value() - 40.0) < 1e-6
+        win.ov_anim_ease.setChecked(False)
+        assert o47.anim_ease is False
+        win.tabs.setCurrentIndex(mw.OVERLAY_TAB)
+        win.timeline.grab()
+        app.processEvents()
+        rect47 = [r for i, r in win.timeline._orects if i == win.osel][0]
+        assert len(win.timeline.overlay_key_points(win.osel, rect47)) == 3
+        n_keys = len(o47.keys)
+        _QT47.mouseDClick(win.timeline, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                          _P47(int(rect47.left() + 0.8 * rect47.width()), int(rect47.center().y())))
+        assert win.osel == n_ov47 and len(o47.keys) == n_keys + 1, (win.osel, len(o47.keys))
+        assert win.ov_kf_pick.count() == n_keys + 1
+        win.ov_kf_next.click()
+        win.ov_kf_prev.click()
+        assert win.osel == n_ov47, "Springen zwischen Punkten behält die Auswahl"
+        win.timeline.grab()
+        win.ov_kf_del.click()
+        assert len(o47.keys) == n_keys
+        win.ov_kf_clear.click()
+        assert o47.keys == [] and win.ov_x.isEnabled() and not win.ov_kf_del.isEnabled()
+        win.remove_overlay()
+        assert len(win.project.overlays) == n_ov47
     with section("Ton verbessern"):
         # Ton verbessern
         win._select_clip(0)

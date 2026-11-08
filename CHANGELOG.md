@@ -1,5 +1,12 @@
 # Änderungen
 
+## 1.4.7
+- **Keyframes für Bild-in-Bild** (Reiter „Bild-in-Bild“, Gruppe „Bewegung über die Zeit“): Position, Größe und Deckkraft eines Blocks ändern sich über seine Länge, zum Beispiel ein Video, das von der Seite hereinfährt und dabei wächst. Punkte lassen sich mit „+ Punkt am Abspielkopf“ oder per **Doppelklick auf den Block** in der Timeline setzen; im gewählten Block zeigen Rauten, wo die Punkte liegen. Jeder Punkt hat Zeit, Mitte, Größe und Deckkraft; „◀ Vorheriger“ und „Nächster ▶“ springen mit dem Abspielkopf von Punkt zu Punkt. Auf Wunsch sind die Übergänge sanft. Solange Keyframes laufen, sind die festen Werte (Ecke, Mitte, Größe, Deckkraft) gesperrt. Im Split-Feld gibt es keine Keyframes.
+- **Fünf Vorlagen**: „Von links hereinfahren“, „Von rechts hereinfahren“, „Hochzoomen“, „Ausblenden“, „Hin und her“. Sie setzen nur Keyframes aus den festen Werten des Blocks, danach änderbar.
+- **Rückwärts abspielen** für Bild-in-Bild-Videos (Bild und Ton), bis 90 Sekunden Länge wie beim Hauptclip.
+- Chroma-Key, Rahmen und Ein-/Ausblenden funktionieren zusammen mit Keyframes. Ohne Keyframes läuft der Export unverändert wie bisher; ältere Projekte laden ohne Änderung.
+- Neue Tests: `test_overlay_keys.py` (echtes FFmpeg, Pixelvergleich für Position, Größe, Deckkraft, Rückwärts); erweiterte Timeline-, Signal- und Oberflächenprüfungen.
+
 ## 1.4.6
 - **Gleichzeitige Bild-in-Bild-Blöcke in eigenen Zeilen**: Blöcke, die zur gleichen Zeit laufen (z. B. beim Split Screen oder bei mehreren Bild-in-Bild-Videos übereinander), liegen in der Timeline jetzt in bis zu drei Zeilen untereinander und verdecken sich nicht mehr; die Spur wird dann höher. Ein einzelner Block sieht aus wie bisher. Der Export konnte schon immer mehrere Blöcke gleichzeitig; neu ist die Anzeige und die Auswahl per Klick.
 - **Chroma-Key-Vorschau** (Reiter „Clip“, Knopf „Vorschau …“): zeigt ein Bild aus der Mitte des Clips mit Key und Hintergrund, so wie der Export es rechnet (auch für Standbilder). Der Clip selbst bleibt dabei unverändert.

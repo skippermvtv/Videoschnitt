@@ -768,4 +768,42 @@ _stw.save({"last_version": "99.0.0"})
 assert win._check_whats_new() is False
 no_errors("1.4.4: Was ist neu")
 print("OK  1.4.4: Was ist neu")
+# 1.4.7: Bild-in-Bild Keyframes, Vorlagen, Rückwärts
+from app.core import overlaykeys as _ok  # noqa: E402
+win.project.overlays = [OverlayClip(_vid, 5.0, start=2.0, x_pct=70.0, y_pct=30.0, size_pct=30.0)]
+win.osel = 0
+win._load_overlay_fields()
+_o = win.project.overlays[0]
+assert not _ok.active(_o)
+win.timeline.set_playhead(3.0)                                    # 1 s im Block (5 s lang) = 20 %
+win.add_overlay_key()
+assert _ok.active(_o) and len(_o.keys) == 3 and any(abs(k["t"] - 0.2) < 1e-6 for k in _o.keys), _o.keys
+win._on_overlay_key_requested(0, 0.6)
+assert len(_o.keys) == 4 and any(abs(k["t"] - 0.6) < 1e-6 for k in _o.keys)
+win._on_overlay_key_requested(1, 0.9)                            # anderer Block: nichts
+assert len(_o.keys) == 4
+win.ov_kf_pick.setCurrentIndex(1)
+win.ov_kf_x.setValue(10.0)
+win._on_ovk_field()
+assert any(abs(k["x"] - 10.0) < 1e-6 for k in _o.keys), _o.keys
+win._goto_overlay_key(1)                                          # springt zum nächsten Punkt hinter dem Abspielkopf
+win.remove_overlay_key()
+assert len(_o.keys) == 3, _o.keys
+win.clear_overlay_keys()
+assert _o.keys == []
+win.ov_kf_preset.setCurrentIndex(win.ov_kf_preset.findData("in_left"))
+win._apply_ovk_preset()
+assert _ok.active(_o) and _o.keys[0]["x"] < 0, _o.keys
+win._on_ovk_ease(False)
+assert _o.anim_ease is False
+win.ov_reverse.setChecked(True)
+win._on_overlay_field()
+assert _o.reverse is True
+_o.cell = [0, 0, 50, 50]
+win.add_overlay_key()
+assert not _ok.active(_o), "im Split-Feld gibt es keine Keyframes"
+win.project.overlays = []
+win.osel = -1
+no_errors("1.4.7: Bild-in-Bild Keyframes")
+print("OK  1.4.7: Bild-in-Bild Keyframes")
 print("Signal-Prüfung OK")

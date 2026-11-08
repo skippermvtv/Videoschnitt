@@ -233,6 +233,9 @@ class OverlayClip:
     main_cell: list = field(default_factory=list)   # Split: Feld, in dem das Hauptvideo läuft (leer = keins)
     sound: bool = False            # Ton des Videos mitspielen (zählt zur Sprach-Gruppe, Musik-Ducking reagiert darauf)
     volume: float = 100.0          # Lautstärke dieses Tons in %
+    keys: list = field(default_factory=list)   # Keyframes: [{"t":0..1,"x":%,"y":%,"size":%,"opacity":%}] (siehe core/overlaykeys.py)
+    anim_ease: bool = True         # sanfte Übergänge zwischen den Keyframes
+    reverse: bool = False          # Video rückwärts abspielen (nicht für Standbilder)
 
     def __post_init__(self):
         if not self.out_pt:

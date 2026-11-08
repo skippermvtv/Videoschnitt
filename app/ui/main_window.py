@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from .. import paths
 from ..core import effects as fx
-from ..core import audiomix, keypreview, loudcheck, whatsnew, diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
+from ..core import audiomix, keypreview, loudcheck, overlaykeys, whatsnew, diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
 from ..core.history import History
 from ..core.fontcheck import missing_chars
 from ..core.helptext import help_html
@@ -1808,6 +1808,9 @@ class MainWindow(QMainWindow):
         self.ov_border = QCheckBox("Weißer Rahmen")
         self.ov_border.toggled.connect(self._on_overlay_field)
         form.addRow(self.ov_border)
+        self.ov_reverse = QCheckBox("Rückwärts abspielen (Bild und Ton)")
+        self.ov_reverse.toggled.connect(self._on_overlay_field)
+        form.addRow(self.ov_reverse)
         self.ov_sound = QCheckBox("Ton des Videos mitspielen")
         self.ov_sound.toggled.connect(self._on_overlay_field)
         self.ov_volume = dspin(0.0, 200.0, 5.0)
@@ -1864,6 +1867,7 @@ class MainWindow(QMainWindow):
         self.ov_key_eye.clicked.connect(self._pick_key_from_frame)
         self.ov_key_spill.toggled.connect(self._on_overlay_field)
         self.ov_key_full.clicked.connect(self._overlay_fullscreen)
+        self._build_overlay_motion(form)
         b1 = QPushButton("Bild-in-Bild löschen")
         b1.clicked.connect(self.remove_overlay)
         form.addRow(b1)
@@ -1871,6 +1875,207 @@ class MainWindow(QMainWindow):
         v.addWidget(self.ov_group)
         v.addStretch(1)
         return outer
+
+    def _build_overlay_motion(self, form: QFormLayout) -> None:
+        """Keyframes für Position, Größe und Deckkraft des gewählten Bild-in-Bild-Blocks."""
+        head = QLabel("Bewegung über die Zeit (Keyframes)")
+        head.setStyleSheet("font-weight: bold;")
+        form.addRow(head)
+        self.ov_kf_note = QLabel("")
+        self.ov_kf_note.setWordWrap(True)
+        self.ov_kf_note.setStyleSheet(f"color: {MUTED};")
+        form.addRow(self.ov_kf_note)
+        self.ov_kf_preset = QComboBox()
+        self.ov_kf_preset.addItem("Vorlage wählen …", "")
+        for key, label in overlaykeys.PRESETS.items():
+            self.ov_kf_preset.addItem(label, key)
+        self.ov_kf_apply = QPushButton("Anwenden")
+        self.ov_kf_apply.setToolTip("Setzt Keyframes aus Position, Größe und Deckkraft des Blocks; danach änderbar")
+        row = QHBoxLayout()
+        row.addWidget(self.ov_kf_preset, 1)
+        row.addWidget(self.ov_kf_apply)
+        form.addRow(row)
+        self.ov_kf_pick = QComboBox()
+        form.addRow("Punkt", self.ov_kf_pick)
+
+        def sp(lo, hi, step, suffix=" %"):
+            w_ = QDoubleSpinBox()
+            w_.setDecimals(1)
+            w_.setRange(lo, hi)
+            w_.setSingleStep(step)
+            w_.setSuffix(suffix)
+            w_.valueChanged.connect(self._on_ovk_field)
+            return w_
+
+        lim = overlaykeys.LIMITS
+        self.ov_kf_t = sp(0.0, 100.0, 5.0)
+        self.ov_kf_x = sp(*lim["x"], 1.0)
+        self.ov_kf_y = sp(*lim["y"], 1.0)
+        self.ov_kf_size = sp(*lim["size"], 1.0)
+        self.ov_kf_op = sp(*lim["opacity"], 5.0)
+        form.addRow("Zeit im Block", self.ov_kf_t)
+        form.addRow("Mitte waagerecht", self.ov_kf_x)
+        form.addRow("Mitte senkrecht", self.ov_kf_y)
+        form.addRow("Größe (Breite)", self.ov_kf_size)
+        form.addRow("Deckkraft", self.ov_kf_op)
+        self.ov_anim_ease = QCheckBox("Sanfte Übergänge zwischen den Punkten")
+        self.ov_anim_ease.toggled.connect(self._on_ovk_ease)
+        form.addRow(self.ov_anim_ease)
+        self.ov_kf_add = QPushButton("+ Punkt am Abspielkopf")
+        self.ov_kf_add.setToolTip("Oder: Doppelklick auf den Block in der Timeline")
+        self.ov_kf_del = QPushButton("Punkt löschen")
+        self.ov_kf_prev = QPushButton("◀ Vorheriger")
+        self.ov_kf_next = QPushButton("Nächster ▶")
+        self.ov_kf_clear = QPushButton("Alle Keyframes löschen")
+        r1 = QHBoxLayout()
+        r1.addWidget(self.ov_kf_add)
+        r1.addWidget(self.ov_kf_del)
+        form.addRow(r1)
+        r2 = QHBoxLayout()
+        r2.addWidget(self.ov_kf_prev)
+        r2.addWidget(self.ov_kf_next)
+        form.addRow(r2)
+        form.addRow(self.ov_kf_clear)
+        self.ov_kf_pick.currentIndexChanged.connect(self._on_ovk_pick)
+        self.ov_kf_apply.clicked.connect(self._apply_ovk_preset)
+        self.ov_kf_add.clicked.connect(lambda *_: self.add_overlay_key())
+        self.ov_kf_del.clicked.connect(self.remove_overlay_key)
+        self.ov_kf_clear.clicked.connect(self.clear_overlay_keys)
+        self.ov_kf_prev.clicked.connect(lambda *_: self._goto_overlay_key(-1))
+        self.ov_kf_next.clicked.connect(lambda *_: self._goto_overlay_key(1))
+        self.timeline.overlay_key_requested.connect(self._on_overlay_key_requested)
+
+    def _show_ovk(self, o, select: int = -1) -> None:
+        """Zeigt die Keyframes des Blocks in den Feldern (ruft keine Handler auf)."""
+        was = self._loading
+        self._loading = True
+        keys = overlaykeys.clean(o.keys, o)
+        active = overlaykeys.active(o)
+        in_split = splitlib.is_split(o)
+        cur = select if select >= 0 else max(0, self.ov_kf_pick.currentIndex())
+        self.ov_kf_pick.clear()
+        for i, k in enumerate(keys):
+            self.ov_kf_pick.addItem(f"{i + 1}  –  bei {k['t'] * 100:.0f} %")
+        cur = min(cur, len(keys) - 1)
+        if cur >= 0:
+            self.ov_kf_pick.setCurrentIndex(cur)
+        k = keys[cur] if 0 <= cur < len(keys) else None
+        for w_, f in ((self.ov_kf_x, "x"), (self.ov_kf_y, "y"), (self.ov_kf_size, "size"), (self.ov_kf_op, "opacity")):
+            w_.setValue(k[f] if k else getattr(o, {"x": "x_pct", "y": "y_pct", "size": "size_pct", "opacity": "opacity"}[f]))
+        self.ov_kf_t.setValue((k["t"] if k else 0.0) * 100.0)
+        self.ov_anim_ease.setChecked(bool(o.anim_ease))
+        for w_ in (self.ov_kf_pick, self.ov_kf_t, self.ov_kf_x, self.ov_kf_y, self.ov_kf_size, self.ov_kf_op, self.ov_kf_del,
+                   self.ov_kf_clear, self.ov_kf_prev, self.ov_kf_next, self.ov_anim_ease):
+            w_.setEnabled(active and not in_split)
+        self.ov_kf_add.setEnabled(not in_split)
+        self.ov_kf_preset.setEnabled(not in_split)
+        self.ov_kf_apply.setEnabled(not in_split)
+        # feste Werte werden von den Keyframes überstimmt
+        for w_ in (self.ov_x, self.ov_y, self.ov_size, self.ov_opacity, self.ov_corner):
+            w_.setEnabled(not in_split and not active)
+        if in_split:
+            self.ov_kf_note.setText("Im Split-Feld gibt es keine Keyframes.")
+        elif active:
+            self.ov_kf_note.setText("Aktiv: Position, Größe und Deckkraft kommen aus den Keyframes (Rauten im Block in der Timeline).")
+        else:
+            self.ov_kf_note.setText("Aus. Eine Vorlage wählen, „+ Punkt“ drücken oder den Block in der Timeline doppelklicken.")
+        self._loading = was
+
+    def _refresh_ovk(self, select: int = -1) -> None:
+        o = self._selected_overlay()
+        if o is None:
+            return
+        self._show_ovk(o, select)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
+
+    def _on_ovk_pick(self, *_a) -> None:
+        o = self._selected_overlay()
+        if self._loading or o is None:
+            return
+        self._show_ovk(o)
+
+    def _on_ovk_field(self, *_a) -> None:
+        o = self._selected_overlay()
+        i = self.ov_kf_pick.currentIndex()
+        if self._loading or o is None or i < 0:
+            return
+        overlaykeys.set_key(o, i, t=self.ov_kf_t.value() / 100.0, x=self.ov_kf_x.value(), y=self.ov_kf_y.value(),
+                            size=self.ov_kf_size.value(), opacity=self.ov_kf_op.value())
+        t_new = self.ov_kf_t.value() / 100.0              # die Liste ist sortiert: Punkt über seine Zeit wiederfinden
+        keys = overlaykeys.clean(o.keys, o)
+        j = min(range(len(keys)), key=lambda n: abs(keys[n]["t"] - t_new)) if keys else -1
+        self._refresh_ovk(j)
+
+    def _on_ovk_ease(self, on: bool) -> None:
+        o = self._selected_overlay()
+        if self._loading or o is None:
+            return
+        o.anim_ease = bool(on)
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
+
+    def _apply_ovk_preset(self) -> None:
+        o = self._selected_overlay()
+        key = self.ov_kf_preset.currentData()
+        if o is None or not key:
+            self.statusBar().showMessage("Zuerst einen Bild-in-Bild-Block anklicken und eine Vorlage wählen.")
+            return
+        if overlaykeys.active(o):
+            o.keys = []                 # Vorlage geht von den festen Werten aus
+        if overlaykeys.apply_preset(key, o):
+            self._refresh_ovk(0)
+            self._load_overlay_fields()
+
+    def add_overlay_key(self, rel: float | None = None) -> None:
+        o = self._selected_overlay()
+        if o is None:
+            self.statusBar().showMessage("Zuerst ein Bild-in-Bild in der Timeline anklicken.")
+            return
+        if splitlib.is_split(o):
+            self.statusBar().showMessage("Im Split-Feld gibt es keine Keyframes.")
+            return
+        if rel is None:
+            t = self.timeline.playhead if self.timeline.playhead >= 0 else o.start
+            rel = (t - o.start) / max(o.length, 0.05)
+        i = overlaykeys.add_key(o, max(0.0, min(1.0, rel)))
+        self._refresh_ovk(i)
+        self._load_overlay_fields()
+
+    def _on_overlay_key_requested(self, idx: int, rel: float) -> None:
+        if idx == self.osel:
+            self.add_overlay_key(rel)
+
+    def remove_overlay_key(self) -> None:
+        o = self._selected_overlay()
+        if o is None or not overlaykeys.remove_key(o, self.ov_kf_pick.currentIndex()):
+            return
+        self._refresh_ovk(0)
+        self._load_overlay_fields()
+
+    def clear_overlay_keys(self) -> None:
+        o = self._selected_overlay()
+        if o is None:
+            return
+        o.keys = []
+        self._refresh_ovk(0)
+        self._load_overlay_fields()
+
+    def _goto_overlay_key(self, step: int) -> None:
+        """Springt mit dem Abspielkopf zum vorherigen/nächsten Keyframe des gewählten Blocks."""
+        o = self._selected_overlay()
+        if o is None or not overlaykeys.active(o):
+            return
+        times = [o.start + k["t"] * o.length for k in overlaykeys.clean(o.keys, o)]
+        now = self.timeline.playhead if self.timeline.playhead >= 0 else 0.0
+        cand = [t for t in times if t > now + 0.02] if step > 0 else [t for t in times if t < now - 0.02]
+        if not cand:
+            return
+        target = min(cand) if step > 0 else max(cand)
+        keep = self.osel
+        self._seek_project(target)                       # das Springen wählt sonst den Hauptclip und hebt die Auswahl auf
+        self.osel = keep
+        self._load_overlay_fields()
+        self._show_ovk(o, times.index(target))
+        self.timeline.set_project(self.project, self.sel, self.asel, self.osel, self.fsel)
 
     def _build_subtitle_tab(self) -> QWidget:
         outer = QWidget()
@@ -3406,6 +3611,8 @@ class MainWindow(QMainWindow):
         self.ov_fin.setValue(o.fade_in)
         self.ov_fout.setValue(o.fade_out)
         self.ov_border.setChecked(o.border)
+        self.ov_reverse.setChecked(bool(o.reverse) and not o.is_image)
+        self.ov_reverse.setEnabled(not o.is_image)
         self.ov_sound.setChecked(bool(o.sound) and not o.is_image)
         self.ov_sound.setEnabled(not o.is_image)
         self.ov_volume.setValue(o.volume)
@@ -3420,6 +3627,7 @@ class MainWindow(QMainWindow):
         for wdg in (self.ov_cz, self.ov_cdx, self.ov_cdy):
             wdg.setEnabled(in_split)
         self._show_key(o)
+        self._show_ovk(o)
         key = next((k for k, (cx, cy) in OVERLAY_CORNERS.items() if abs(cx - o.x_pct) < 0.5 and abs(cy - o.y_pct) < 0.5), "")
         self.ov_corner.setCurrentIndex(max(0, self.ov_corner.findData(key)))
         self._loading = False
@@ -3449,6 +3657,7 @@ class MainWindow(QMainWindow):
         o.fade_out = self.ov_fout.value()
         o.border = self.ov_border.isChecked()
         o.cell_zoom, o.cell_dx, o.cell_dy = self.ov_cz.value(), self.ov_cdx.value(), self.ov_cdy.value()
+        o.reverse = bool(self.ov_reverse.isChecked()) and not o.is_image
         o.sound = bool(self.ov_sound.isChecked()) and not o.is_image
         o.volume = self.ov_volume.value()
         self.ov_volume.setEnabled(not o.is_image and o.sound)

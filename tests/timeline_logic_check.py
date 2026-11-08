@@ -20,6 +20,13 @@ class QRectF:
     def top(s): return s.y
     def height(s): return s.h
     def contains(s, p): return s.x <= p.x() <= s.x + s.w and s.y <= p.y() <= s.y + s.h
+    def width(s): return s.w
+    def center(s): return Pt(s.x + s.w / 2, s.y + s.h / 2)
+
+class QPointF:
+    def __init__(s, x=0, y=0): s._x, s._y = x, y
+    def x(s): return s._x
+    def y(s): return s._y
 
 class Pt:
     def __init__(s, x, y): s._x, s._y = x, y
@@ -29,6 +36,10 @@ class Pt:
 class Ev:
     def __init__(s, x, y): s._p = Pt(x, y)
     def position(s): return s._p
+    def button(s): return "L"
+
+class QtStub(Any):
+    MouseButton = types.SimpleNamespace(LeftButton="L")
 
 class QWidget:
     def __init__(s, parent=None): s._w, s._h = 1000, 260
@@ -40,6 +51,7 @@ class QWidget:
     def update(s): pass
     def font(s): return Any()
     def setAcceptDrops(s, b): pass
+    def mouseDoubleClickEvent(s, e): s.fallback = True
     def window(s): return s._win if hasattr(s, "_win") else s
 
 def mod(name, **kw):
@@ -49,8 +61,8 @@ def mod(name, **kw):
     return m
 
 mod("PySide6")
-mod("PySide6.QtCore", QRectF=QRectF, Qt=Any(), Signal=lambda *a: Sig())
-mod("PySide6.QtGui", QColor=Any, QFont=Any, QPainter=Any, QPen=Any)
+mod("PySide6.QtCore", QPointF=QPointF, QRectF=QRectF, Qt=QtStub(), Signal=lambda *a: Sig())
+mod("PySide6.QtGui", QColor=Any, QFont=Any, QPainter=Any, QPen=Any, QPolygonF=Any)
 mod("PySide6.QtWidgets", QWidget=QWidget)
 
 # Signal ist im echten Qt ein Klassenattribut; hier pro Instanz neu anlegen
@@ -60,7 +72,7 @@ def init(self, parent=None):
     orig_init(self, parent)
     self.clip_selected, self.audio_selected, self.audio_edited = Sig(), Sig(), Sig()
     self.clip_edited, self.clip_reordered, self.seek_requested = Sig(), Sig(), Sig()
-    self.overlay_selected, self.overlay_edited = Sig(), Sig()
+    self.overlay_selected, self.overlay_edited, self.overlay_key_requested = Sig(), Sig(), Sig()
     self.fx_selected, self.fx_edited, self.effect_dropped = Sig(), Sig(), Sig()
     self.media_dropped, self.lane_mute_toggled = Sig(), Sig()
     self.title_dropped, self.transition_dropped = Sig(), Sig()
@@ -295,4 +307,31 @@ assert t.locked_lanes() == [0, 3, 5] and t.is_locked(3) and not t.is_locked(1)
 t.set_locked([])
 assert t.locked_lanes() == []
 print("OK  Spursperren setzen/lesen")
+# Doppelklick auf einen Bild-in-Bild-Block fügt einen Keyframe ein; Rauten-Positionen
+from app.core import overlaykeys
+p.overlays = [OverlayClip("k.mp4", 6.0, 0.0, 6.0, start=1.0)]
+t.set_project(p, 0, -1, 0)
+rk = QRectF(t._x(1.0), t._lane_y(4), 6.0 / t._span() * t._avail(), tl.V2_H)
+t._orects = [(0, rk)]
+assert t.overlay_key_points(0, rk) == []
+t.overlay_key_requested.calls.clear(); t.overlay_selected.calls.clear()
+t.mouseDoubleClickEvent(Ev(t._x(4.0), t._lane_y(4) + 5))                    # 4 s = 50 % im Block (1…7 s)
+assert t.overlay_key_requested.calls and abs(t.overlay_key_requested.calls[0][1] - 0.5) < 0.01, t.overlay_key_requested.calls
+assert t.overlay_key_requested.calls[0][0] == 0 and t.overlay_selected.calls
+t.overlay_key_requested.calls.clear()
+t.mouseDoubleClickEvent(Ev(t._x(15.0), t._lane_y(4) + 5))                   # neben dem Block: nichts
+assert not t.overlay_key_requested.calls
+t._locked = {4}
+t.mouseDoubleClickEvent(Ev(t._x(4.0), t._lane_y(4) + 5))                    # Spur gesperrt: nichts
+assert not t.overlay_key_requested.calls
+t._locked = set()
+p.overlays[0].cell = [0, 0, 50, 50]
+t.mouseDoubleClickEvent(Ev(t._x(4.0), t._lane_y(4) + 5))                    # Split-Feld: keine Keyframes
+assert not t.overlay_key_requested.calls
+p.overlays[0].cell = []
+overlaykeys.apply_preset("swing", p.overlays[0])
+pts = t.overlay_key_points(0, rk)
+assert len(pts) == 3 and abs(pts[0].x() - rk.left()) < 1e-6 and abs(pts[2].x() - rk.right()) < 1e-6 \
+    and abs(pts[1].x() - (rk.left() + rk.width() / 2)) < 1e-6
+print("OK  Bild-in-Bild: Doppelklick fügt Keyframe ein, Rauten")
 print("Timeline-Mauslogik OK")

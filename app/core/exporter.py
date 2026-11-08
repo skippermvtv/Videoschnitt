@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable
 
 from ..paths import find_binary, resolve_font
-from . import audiofix, audiomix, grade, presets, split
+from . import audiofix, audiomix, grade, overlaykeys, presets, split
 from .effects import Ctx, build_graph
 from .project import Clip, Project, TextLayer, overlap
 
@@ -213,7 +213,7 @@ def _transform_chain(c: Clip) -> str:
     return ",".join(parts)
 
 
-def _interp(keys: list[dict], field_name: str, L: float, ease: bool) -> str:
+def _interp(keys: list[dict], field_name: str, L: float, ease: bool, tvar: str = "t") -> str:
     """Stückweise lineare (oder sanfte) Kurve über die Zeit t des Clips als FFmpeg-Ausdruck."""
     pts = sorted(((max(0.0, min(1.0, float(k.get("t", 0)))), float(k.get(field_name, 0))) for k in keys))
     fixed = []
@@ -223,7 +223,7 @@ def _interp(keys: list[dict], field_name: str, L: float, ease: bool) -> str:
         fixed.append((tt, v))
     if len(fixed) == 1 or len({v for _, v in fixed}) == 1:
         return f"{fixed[0][1]:.4f}"
-    tn = f"(t/{max(L, 0.05):.4f})"
+    tn = f"({tvar}/{max(L, 0.05):.4f})"
     expr = f"{fixed[-1][1]:.4f}"
     for (t0, v0), (t1, v1) in reversed(list(zip(fixed[:-1], fixed[1:]))):
         u = f"min(1,max(0,({tn}-{t0:.4f})/{max(t1 - t0, 0.001):.4f}))"
@@ -256,6 +256,70 @@ def _motion_chain(c: Clip, W: int, H: int) -> str:
         parts.append(f"scale=w='{sw}':h='{sh}':eval=frame:flags=bilinear")
         parts.append(f"crop={W}:{H}:x='({sw}-{W})/2*(1+({px})/100)':y='({sh}-{H})/2*(1+({py})/100)'")
     return ",".join(parts)
+
+
+def _is_const(expr: str) -> bool:
+    try:
+        float(expr)
+        return True
+    except ValueError:
+        return False
+
+
+def _free_overlay_chain(o, k: int, fps, W: int, ow: int, osp: float, olen: float) -> tuple[str, str]:
+    """Filterkette (ohne Zeitversatz) und Position eines freien Bild-in-Bild-Blocks, ggf. mit Keyframes."""
+    rev = "reverse," if getattr(o, "reverse", False) and not o.is_image else ""
+    head = f"[{k}:v]{rev}setpts=(PTS-STARTPTS)/{osp:.4f},fps={fps}"
+    if not overlaykeys.active(o):
+        ch = f"{head},scale={ow}:-2,format=rgba"
+        key = chromakey_filters(o)
+        if key:
+            ch += "," + key + ",format=rgba"
+        if o.border:
+            b = max(2, ow // 80)
+            ch += f",pad=iw+{2 * b}:ih+{2 * b}:{b}:{b}:white"
+        if o.opacity < 99.5:
+            ch += f",colorchannelmixer=aa={max(0.0, o.opacity) / 100.0:.3f}"
+        if o.fade_in > 0:
+            ch += f",fade=t=in:st=0:d={min(o.fade_in, olen):.3f}:alpha=1"
+        if o.fade_out > 0:
+            fo = min(o.fade_out, olen)
+            ch += f",fade=t=out:st={max(0.0, olen - fo):.3f}:d={fo:.3f}:alpha=1"
+        return ch, f"x='W*{o.x_pct:.2f}/100-w/2':y='H*{o.y_pct:.2f}/100-h/2'"
+
+    keys = overlaykeys.clean(o.keys, o)
+    ease = bool(getattr(o, "anim_ease", True))
+    ex = _interp(keys, "x", olen, ease, f"(t-{o.start:.3f})")
+    ey = _interp(keys, "y", olen, ease, f"(t-{o.start:.3f})")
+    esz = _interp(keys, "size", olen, ease, "t")
+    eop = _interp(keys, "opacity", olen, ease, "T")
+    big = max(k_["size"] for k_ in keys)
+    ow_max = max(16, int(W * big / 100.0) // 2 * 2)
+    ch = f"{head},scale={ow_max}:-2,format=rgba"
+    key = chromakey_filters(o)
+    if key:
+        ch += "," + key + ",format=rgba"
+    if o.border:
+        b = max(2, ow_max // 80)
+        ch += f",pad=iw+{2 * b}:ih+{2 * b}:{b}:{b}:white"
+    if _is_const(eop):
+        if float(eop) < 99.5:
+            ch += f",colorchannelmixer=aa={max(0.0, float(eop)) / 100.0:.3f}"
+    else:
+        ch += f",geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({eop})/100'"
+    if o.fade_in > 0:
+        ch += f",fade=t=in:st=0:d={min(o.fade_in, olen):.3f}:alpha=1"
+    if o.fade_out > 0:
+        fo = min(o.fade_out, olen)
+        ch += f",fade=t=out:st={max(0.0, olen - fo):.3f}:d={fo:.3f}:alpha=1"
+    if _is_const(esz):
+        want = max(16, int(W * float(esz) / 100.0) // 2 * 2)
+        if abs(want - ow_max) > 1:
+            ch += f",scale={want}:-2"
+    else:
+        sw = f"trunc({W}*({esz})/100/2)*2"
+        ch += f",scale=w='{sw}':h='trunc(ow*ih/iw/2)*2':eval=frame:flags=bilinear"
+    return ch, f"x='W*({ex})/100-w/2':y='H*({ey})/100-h/2'"
 
 
 def _layout_chain(i: int, W: int, H: int, mode: str) -> str:
@@ -539,32 +603,34 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
             cmd += ["-loop", "1", "-framerate", str(fps), "-t", f"{oseg:.3f}", "-i", o.path]
         else:
             cmd += ["-ss", f"{o.in_pt:.3f}", "-t", f"{oseg:.3f}", "-i", o.path]
+        if getattr(o, "reverse", False) and not o.is_image and oseg > MAX_REVERSE_SECONDS:
+            raise ExportError(f"Bild-in-Bild „{o.name}“: Rückwärts abspielen geht nur für Blöcke bis {int(MAX_REVERSE_SECONDS)} Sekunden "
+                              "(Teile den Block oder kürze ihn).")
         cell = split.cell_px(o, W, H)
         ow = max(16, int(W * max(1.0, min(o.size_pct, 100.0)) / 100.0) // 2 * 2)
         if cell:                         # Split Screen: Bild füllt das Feld aus (überstehende Ränder werden abgeschnitten)
             sw, sh, dx, dy = split.crop_params(o, cell[2], cell[3])
-            ch = (f"[{k}:v]setpts=(PTS-STARTPTS)/{osp:.4f},fps={fps},scale={sw}:{sh}:force_original_aspect_ratio=increase,"
+            rev = "reverse," if getattr(o, "reverse", False) and not o.is_image else ""
+            ch = (f"[{k}:v]{rev}setpts=(PTS-STARTPTS)/{osp:.4f},fps={fps},scale={sw}:{sh}:force_original_aspect_ratio=increase,"
                   f"crop={cell[2]}:{cell[3]}:x='(iw-{cell[2]})*(0.5+{dx / 200.0:.5f})':y='(ih-{cell[3]})*(0.5+{dy / 200.0:.5f})',"
                   "setsar=1,format=rgba")
         else:
-            ch = f"[{k}:v]setpts=(PTS-STARTPTS)/{osp:.4f},fps={fps},scale={ow}:-2,format=rgba"
-        key = chromakey_filters(o)
-        if key:
-            ch += "," + key + ",format=rgba"
-        if o.border and not cell:
-            b = max(2, ow // 80)
-            ch += f",pad=iw+{2 * b}:ih+{2 * b}:{b}:{b}:white"
-        if o.opacity < 99.5:
-            ch += f",colorchannelmixer=aa={max(0.0, o.opacity) / 100.0:.3f}"
-        if o.fade_in > 0:
-            ch += f",fade=t=in:st=0:d={min(o.fade_in, olen):.3f}:alpha=1"
-        if o.fade_out > 0:
-            fo = min(o.fade_out, olen)
-            ch += f",fade=t=out:st={max(0.0, olen - fo):.3f}:d={fo:.3f}:alpha=1"
+            ch, pos = _free_overlay_chain(o, k, fps, W, ow, osp, olen)
+        if cell:
+            pos = f"x={cell[0]}:y={cell[1]}"
+            key = chromakey_filters(o)
+            if key:
+                ch += "," + key + ",format=rgba"
+            if o.opacity < 99.5:
+                ch += f",colorchannelmixer=aa={max(0.0, o.opacity) / 100.0:.3f}"
+            if o.fade_in > 0:
+                ch += f",fade=t=in:st=0:d={min(o.fade_in, olen):.3f}:alpha=1"
+            if o.fade_out > 0:
+                fo = min(o.fade_out, olen)
+                ch += f",fade=t=out:st={max(0.0, olen - fo):.3f}:d={fo:.3f}:alpha=1"
         ch += f",setpts=PTS+{o.start:.3f}/TB[ov{oj}]"
         nxt = f"vo{oj}"
         graph.append(ch)
-        pos = f"x={cell[0]}:y={cell[1]}" if cell else f"x='W*{o.x_pct:.2f}/100-w/2':y='H*{o.y_pct:.2f}/100-h/2'"
         graph.append(f"[{cur}][ov{oj}]overlay={pos}:"
                      f"eof_action=pass:enable='between(t,{o.start:.3f},{o.start + olen:.3f})'[{nxt}]")
         cur = nxt

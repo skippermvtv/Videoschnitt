@@ -9,11 +9,12 @@ Maus:
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
 from ..core import effects as fxlib
+from ..core import overlaykeys
 from ..core.audiomix import effective_volume
 from .theme import ACCENT, MUTED, PANEL
 
@@ -51,6 +52,7 @@ class Timeline(QWidget):
     audio_selected = Signal(int)
     overlay_selected = Signal(int)
     overlay_edited = Signal(int)
+    overlay_key_requested = Signal(int, float)   # Doppelklick auf einen Bild-in-Bild-Block: (Nummer, relative Zeit 0…1) → Keyframe einfügen
     audio_edited = Signal(int)             # während/nach dem Ziehen
     fx_selected = Signal(int)
     fx_edited = Signal(int)                # Effekt-Block wurde verschoben oder in der Länge geändert
@@ -337,6 +339,12 @@ class Timeline(QWidget):
             p.setPen(QColor("white"))
             p.drawText(r.adjusted(5, 2, -5, -2), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                        o.name + ("  (Bild)" if o.is_image else ""))
+            if oi == self._osel and overlaykeys.active(o):          # Keyframes als Rauten
+                p.setBrush(QColor("white"))
+                p.setPen(QPen(QColor("#222"), 1))
+                for pt in self.overlay_key_points(oi, r):
+                    p.drawPolygon(QPolygonF([QPointF(pt.x(), pt.y() - 5), QPointF(pt.x() + 5, pt.y()),
+                                             QPointF(pt.x(), pt.y() + 5), QPointF(pt.x() - 5, pt.y())]))
 
         # Audioblöcke
         for idx, a in enumerate(proj.audio_clips):
@@ -419,6 +427,26 @@ class Timeline(QWidget):
                     mode = "trim_r"
                 return idx, mode
         return -1, ""
+
+    def overlay_key_points(self, oi: int, r: QRectF) -> list[QPointF]:
+        """Mittelpunkte der Keyframe-Rauten eines Bild-in-Bild-Blocks im Rechteck r (leer ohne Keyframes)."""
+        o = self._project.overlays[oi]
+        return [QPointF(r.left() + k["t"] * r.width(), r.center().y()) for k in overlaykeys.clean(o.keys, o)]
+
+    def mouseDoubleClickEvent(self, event):
+        pos = event.position()
+        if event.button() == Qt.MouseButton.LeftButton and self._project is not None and self._in_content(pos.x()):
+            oi, _ = self._hit_overlay(pos)
+            if oi >= 0 and 4 not in self._locked:
+                o = self._project.overlays[oi]
+                if not o.cell and o.length > 0:
+                    rel = (self._t_at(pos.x()) - o.start) / o.length
+                    self._osel, self._asel, self._fsel = oi, -1, -1
+                    self.overlay_selected.emit(oi)
+                    self.overlay_key_requested.emit(oi, max(0.0, min(1.0, rel)))
+                    self.update()
+                    return
+        super().mouseDoubleClickEvent(event)
 
     def _hit_overlay(self, pos):
         for idx, r in reversed(self._orects):

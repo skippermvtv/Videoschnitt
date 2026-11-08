@@ -130,6 +130,8 @@ def build_audio(project: Project, total: float, first_input: int, bed: str = "ac
         olen = oseg / osp
         cmd += ["-ss", f"{o.in_pt:.3f}", "-t", f"{oseg:.3f}", "-i", o.path]
         chain = f"[{k}:a]aresample=48000,aformat=channel_layouts=stereo"
+        if getattr(o, "reverse", False):
+            chain += ",areverse"
         if abs(osp - 1.0) > 1e-3:
             chain += "," + _atempo_chain(osp)
         chain += f",atrim=duration={olen:.3f},asetpts=PTS-STARTPTS"
