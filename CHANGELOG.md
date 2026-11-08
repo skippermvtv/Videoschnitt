@@ -1,5 +1,12 @@
 # Änderungen
 
+## 1.4.8
+- **Karaoke-Untertitel** (Reiter „Untertitel“): „Karaoke: gesprochenes Wort hervorheben“ zeigt jedes Wort zu seiner Zeit in einer Hervorhebungsfarbe. Zwei Arten: gesprochene Wörter bleiben hervorgehoben, oder nur das gerade gesprochene Wort leuchtet. Die Wortzeiten werden aus der Länge der Wörter über die Dauer des Eintrags verteilt, das klappt auch für importierte SRT-Dateien und selbst getippte Einträge. Whisper-Wortzeiten werden noch nicht genutzt. Einträge mit mehr als 60 Wörtern erscheinen normal.
+- **Untertitel-Vorschau**: „Vorschau …“ zeigt ein Bild mit dem gewählten Untertitel so wie im Export (auch mit Karaoke-Farbe), ohne zu exportieren.
+- **Zwölf neue Effekte** (jetzt 47): Tilt-Shift (Miniatur-Look), Zoom-Unschärfe (Speed-Blur), Stop-Motion (Ruckeln), Lichtleck (warmer Schein), Bleistiftskizze, Wärmebild, Nur Rot / Grün / Blau behalten, Strobe (Blitzlicht), Doppelbelichtung und Röntgen. Alle lassen sich wie die bisherigen auf die FX-Spur legen, mit Zeitfenster und Intensität.
+- **Tastenkürzel**: S teilt den gewählten Clip am Abspielkopf, ← / → springen ein Bild (mit Umschalt eine Sekunde), Pos1 / Ende springen zum Anfang / Ende. Sie gelten nicht, solange du in einem Textfeld, einer Liste, einem Auswahlfeld oder Regler tippst. Entf (löschen) und Leertaste (Abspielen) gab es schon.
+- Neue Tests: `test_effects_new.py` (echtes FFmpeg, Pixelvergleich je Effekt), `test_karaoke.py`; erweiterte Signal- und Oberflächenprüfungen.
+
 ## 1.4.7
 - **Keyframes für Bild-in-Bild** (Reiter „Bild-in-Bild“, Gruppe „Bewegung über die Zeit“): Position, Größe und Deckkraft eines Blocks ändern sich über seine Länge, zum Beispiel ein Video, das von der Seite hereinfährt und dabei wächst. Punkte lassen sich mit „+ Punkt am Abspielkopf“ oder per **Doppelklick auf den Block** in der Timeline setzen; im gewählten Block zeigen Rauten, wo die Punkte liegen. Jeder Punkt hat Zeit, Mitte, Größe und Deckkraft; „◀ Vorheriger“ und „Nächster ▶“ springen mit dem Abspielkopf von Punkt zu Punkt. Auf Wunsch sind die Übergänge sanft. Solange Keyframes laufen, sind die festen Werte (Ecke, Mitte, Größe, Deckkraft) gesperrt. Im Split-Feld gibt es keine Keyframes.
 - **Fünf Vorlagen**: „Von links hereinfahren“, „Von rechts hereinfahren“, „Hochzoomen“, „Ausblenden“, „Hin und her“. Sie setzen nur Keyframes aus den festen Werten des Blocks, danach änderbar.

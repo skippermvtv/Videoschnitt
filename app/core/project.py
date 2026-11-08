@@ -264,6 +264,8 @@ class TextLayer:
     anim: str = "none"         # none | fade | slide_up | slide_left | bounce | typewriter | shake | blink
     anim_dur: float = 0.4      # Dauer des Ein-/Ausblendens bzw. Tippens (Sekunden)
     box: bool = False          # halbtransparenter Kasten hinter dem Text
+    karaoke: str = ""          # Hervorhebungsfarbe; leer = kein Karaoke (Wort für Wort, siehe core/karaoke.py)
+    karaoke_mode: str = "stay"  # stay: gesprochene Wörter bleiben hervorgehoben | active: nur das aktuelle Wort
 
 
 TEXT_ANIMS = [("none", "Keine"), ("fade", "Einblenden / Ausblenden"), ("slide_up", "Von unten hereinfahren"),
@@ -288,6 +290,9 @@ class SubtitleStyle:
     box: bool = False
     anim: str = "none"
     anim_dur: float = 0.2
+    karaoke: bool = False      # Wort für Wort hervorheben
+    karaoke_color: str = "#ffd400"
+    karaoke_mode: str = "stay"  # stay | active
 
 
 @dataclass

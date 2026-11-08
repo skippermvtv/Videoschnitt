@@ -103,7 +103,8 @@ def cue_layers(cues: list[SubtitleCue], st: SubtitleStyle, limit: float | None =
             continue
         layers.append(TextLayer(text=c.text.strip(), start=c.start, end=c.end, position=st.position,
                                 size_pct=st.size_pct, color=st.color, border_color=st.border_color, font=st.font,
-                                anim=st.anim, anim_dur=st.anim_dur, box=st.box))
+                                anim=st.anim, anim_dur=st.anim_dur, box=st.box,
+                                karaoke=(st.karaoke_color if st.karaoke else ""), karaoke_mode=st.karaoke_mode))
     return layers
 
 

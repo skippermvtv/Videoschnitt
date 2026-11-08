@@ -9,6 +9,9 @@ SHORTCUTS = [
     ("Strg+E", "Exportieren"),
     ("Leertaste", "Abspielen / Pause"),
     ("Entf", "Gewählten Clip, Audioblock oder Bild-in-Bild löschen"),
+    ("S", "Gewählten Clip am Abspielkopf teilen"),
+    ("← / →", "Ein Bild zurück / vor (mit Umschalt: eine Sekunde)"),
+    ("Pos1 / Ende", "Zum Anfang / Ende des Projekts springen"),
     ("Strg + Mausrad", "Timeline zoomen"),
 ]
 
@@ -39,6 +42,7 @@ TIPS = [
     "Split Screen: Mehrere Videos als Bild-in-Bild zur selben Zeit auf V2 legen, im Reiter „Split“ ein Layout wählen und „Anwenden“ klicken. Oder in der Medienliste Videos markieren und „Gewählte Medien als Split einfügen“.",
     "Geschwindigkeitskurve: Im Reiter „Clip“ eine Vorlage wählen (z. B. „Zeitlupe in der Mitte“) oder die Kurve zeichnen: Punkte ziehen (senkrecht = Tempo, waagerecht = Stelle im Clip), Doppelklick = neuer Punkt, Rechtsklick = Punkt entfernen. Eintippen geht auch (Position in %:Tempo). „Kurve anwenden“ teilt den Clip in Abschnitte. Strg+Z macht es rückgängig.",
     "Bild-in-Bild bewegen: Im Reiter „Bild-in-Bild“ eine Vorlage wählen („Von links hereinfahren“, „Hochzoomen“ …) oder den Block in der Timeline doppelklicken, um Punkte zu setzen. Jeder Punkt hat Zeit, Position, Größe und Deckkraft. „Rückwärts abspielen“ dreht Bild und Ton um.",
+    "Karaoke-Untertitel: Im Reiter „Untertitel“ „Karaoke: gesprochenes Wort hervorheben“ einschalten und eine Hervorhebungsfarbe wählen. Die Wortzeiten werden aus der Länge der Wörter über die Dauer des Eintrags verteilt (Einträge mit mehr als 60 Wörtern erscheinen normal). „Vorschau …“ zeigt ein Bild des gewählten Eintrags. Die Tasten S, ← → und Pos1/Ende gelten nicht, solange du in einem Textfeld oder einer Liste tippst.",
     "Mehrere Bild-in-Bild-Videos gleichzeitig: Blöcke, die zur selben Zeit laufen, liegen in der Timeline untereinander (bis zu drei Zeilen). Chroma-Key: „Vorschau …“ im Reiter „Clip“ zeigt das Ergebnis als Bild.",
     "Tempokurve ändern: Abschnitt anklicken, die Kurve erscheint wieder; Punkte anpassen und „Kurve ersetzen“. „Kurve entfernen“ macht wieder einen Clip daraus. „Kurve speichern …“ legt eigene Kurven in der Vorlagenliste ab (★).",
     "Nach dem Export zeigt das Programm die Lautheit der fertigen Datei (LUFS), damit du siehst, wie nah sie am Ziel liegt.",

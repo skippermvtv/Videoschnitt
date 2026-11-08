@@ -13,7 +13,7 @@ from PySide6.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QKeySequ
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QDialog, QDialogButtonBox, QTextBrowser, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog,
+    QAbstractItemView, QAbstractSpinBox, QApplication, QCheckBox, QDialog, QDialogButtonBox, QTextBrowser, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem,
     QMainWindow, QMessageBox, QPlainTextEdit, QProgressDialog, QPushButton, QSlider,
     QFrame, QLineEdit, QListView, QScrollArea, QSplitter, QStackedWidget, QStyle, QToolButton, QTreeWidget, QTreeWidgetItem,
@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from .. import paths
 from ..core import effects as fx
-from ..core import audiomix, keypreview, loudcheck, overlaykeys, whatsnew, diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
+from ..core import audiomix, karaoke, keypreview, loudcheck, overlaykeys, subpreview, whatsnew, diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
 from ..core.history import History
 from ..core.fontcheck import missing_chars
 from ..core.helptext import help_html
@@ -146,6 +146,7 @@ class MainWindow(QMainWindow):
         self._preview_start = 0.0
         self._job_t0 = 0.0
         self._sub_color = "#ffffff"
+        self._sub_kar_color = "#ffd400"
         self._fonts: dict[str, str] = {}
         self.fsel = -1          # gewählter Effekt-Block auf der FX-Spur
         self._text_color = "#ffffff"
@@ -2170,6 +2171,23 @@ class MainWindow(QMainWindow):
         sf.addRow("Animation", self.sub_anim)
         sf.addRow("Farbe", self.btn_sub_color)
         sf.addRow(self.sub_box)
+        self.sub_karaoke = QCheckBox("Karaoke: gesprochenes Wort hervorheben")
+        self.sub_karaoke.setToolTip("Jedes Wort wird zu seiner Zeit in der Hervorhebungsfarbe gezeigt. Die Wortzeiten werden "
+                                    "aus der Länge der Wörter über die Dauer des Eintrags verteilt.")
+        self.sub_karaoke.toggled.connect(self._on_sub_style)
+        self.sub_kar_mode = QComboBox()
+        for key, label in karaoke.MODES.items():
+            self.sub_kar_mode.addItem(label, key)
+        self.sub_kar_mode.currentIndexChanged.connect(self._on_sub_style)
+        self.btn_sub_kar_color = QPushButton("Hervorhebungsfarbe wählen")
+        self.btn_sub_kar_color.clicked.connect(self.pick_sub_kar_color)
+        self.btn_sub_preview = QPushButton("Vorschau …")
+        self.btn_sub_preview.setToolTip("Zeigt ein Bild mit Untertitel (gewählter Eintrag) so wie im Export")
+        self.btn_sub_preview.clicked.connect(lambda *_: self.show_sub_preview())
+        sf.addRow(self.sub_karaoke)
+        sf.addRow("Karaoke-Art", self.sub_kar_mode)
+        sf.addRow("Karaoke-Farbe", self.btn_sub_kar_color)
+        sf.addRow(self.btn_sub_preview)
         v.addWidget(st)
         v.addStretch(1)
         self._refresh_sub_font_combo()
@@ -3470,6 +3488,12 @@ class MainWindow(QMainWindow):
         self.sub_box.setChecked(st.box)
         self._sub_color = st.color if st.color.startswith("#") else "#ffffff"
         self.btn_sub_color.setStyleSheet(f"background: {self._sub_color}; color: black; font-weight: 600;")
+        self.sub_karaoke.setChecked(bool(st.karaoke))
+        self.sub_kar_mode.setCurrentIndex(max(0, self.sub_kar_mode.findData(st.karaoke_mode)))
+        self._sub_kar_color = st.karaoke_color if str(st.karaoke_color).startswith("#") else karaoke.DEFAULT_COLOR
+        self.btn_sub_kar_color.setStyleSheet(f"background: {self._sub_kar_color}; color: black; font-weight: 600;")
+        self.sub_kar_mode.setEnabled(bool(st.karaoke))
+        self.btn_sub_kar_color.setEnabled(bool(st.karaoke))
         self._loading = False
 
     def _on_sub_selected(self, row: int) -> None:
@@ -3506,6 +3530,11 @@ class MainWindow(QMainWindow):
         st.anim = self.sub_anim.currentData() or "none"
         st.box = self.sub_box.isChecked()
         st.color = self._sub_color
+        st.karaoke = self.sub_karaoke.isChecked()
+        st.karaoke_mode = self.sub_kar_mode.currentData() or "stay"
+        st.karaoke_color = self._sub_kar_color
+        self.sub_kar_mode.setEnabled(st.karaoke)
+        self.btn_sub_kar_color.setEnabled(st.karaoke)
 
     def pick_sub_color(self) -> None:
         c = QColorDialog.getColor(QColor(self._sub_color), self, "Untertitel-Farbe")
@@ -3513,6 +3542,47 @@ class MainWindow(QMainWindow):
             self._sub_color = c.name()
             self.btn_sub_color.setStyleSheet(f"background: {self._sub_color}; color: black; font-weight: 600;")
             self._on_sub_style()
+
+    def pick_sub_kar_color(self) -> None:
+        c = QColorDialog.getColor(QColor(self._sub_kar_color), self, "Karaoke-Hervorhebungsfarbe")
+        if c.isValid():
+            self._sub_kar_color = c.name()
+            self.btn_sub_kar_color.setStyleSheet(f"background: {self._sub_kar_color}; color: black; font-weight: 600;")
+            self._on_sub_style()
+
+    def _sub_preview_file(self) -> str:
+        t = subpreview.pick_time(self.project, self.timeline.playhead, self.sub_list.currentRow())
+        if t is None:
+            raise RuntimeError("Es gibt noch keinen Untertitel-Eintrag.")
+        import tempfile
+        d = Path(tempfile.mkdtemp(prefix="fate_subview_"))
+        self._tmp_dirs.append(d)
+        png = str(d / "sub.png")
+        subpreview.render(self.project, t, png, height=480)
+        return png
+
+    def show_sub_preview(self) -> bool:
+        """Zeigt das Untertitel-Vorschaubild in einem kleinen Fenster."""
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            png = self._sub_preview_file()
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Vorschau", f"Die Vorschau konnte nicht erstellt werden:\n{exc}")
+            return False
+        finally:
+            QApplication.restoreOverrideCursor()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Untertitel – Vorschau")
+        lay = QVBoxLayout(dlg)
+        label = QLabel()
+        label.setPixmap(QPixmap(png))
+        lay.addWidget(label)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        self._sub_preview_dialog = dlg
+        dlg.exec()
+        return True
 
     def add_subtitle(self) -> None:
         t0 = self.timeline.playhead if self.timeline.playhead >= 0 else 0.0
@@ -4916,6 +4986,56 @@ class MainWindow(QMainWindow):
                 if self._is_dirty():          # Speichern-Dialog abgebrochen
                     return False
         return True
+
+    # ------------------------------------------------------------- Tastenkürzel
+    EDIT_KEYS = {"S": "s", "Left": "left", "Right": "right", "Home": "home", "End": "end"}   # Entf und Leertaste sind Menü-Aktionen
+
+    def _edit_keys_ok(self) -> bool:
+        """Die Schnitt-Tasten gelten nicht, solange in einem Eingabefeld, einer Liste, einem Auswahlfeld oder Regler getippt wird."""
+        fw = QApplication.focusWidget()
+        if fw is None:
+            return True
+        return not isinstance(fw, (QLineEdit, QPlainTextEdit, QAbstractSpinBox, QComboBox, QAbstractItemView, QSlider))
+
+    def _frame_step(self) -> float:
+        f = presets.get("formats", self.project.format_id) or {}
+        return 1.0 / max(1.0, float(f.get("fps", 30)))
+
+    def edit_key(self, name: str, shift: bool = False) -> bool:
+        """Führt eine Schnitt-Taste aus (s, delete, left, right, home, end, space); True, wenn sie etwas bewirkt hat."""
+        if not self.project.clips:
+            return False
+        now = max(0.0, self.timeline.playhead)
+        if name == "s":
+            self.split_clip()
+        elif name == "delete":
+            self.delete_selected()
+        elif name in ("left", "right"):
+            step = 1.0 if shift else self._frame_step()
+            self._seek_project(max(0.0, min(self.project.duration - 0.01, now + (step if name == "right" else -step))))
+        elif name == "home":
+            self._seek_project(0.0)
+        elif name == "end":
+            self._seek_project(max(0.0, self.project.duration - 0.05))
+        elif name == "space":
+            self.toggle_play()
+        else:
+            return False
+        return True
+
+    def keyPressEvent(self, event):  # noqa: N802
+        mods = event.modifiers()
+        plain = not (mods & ~Qt.KeyboardModifier.ShiftModifier)
+        name = None
+        for key_name, short in self.EDIT_KEYS.items():
+            if event.key() == getattr(Qt.Key, "Key_" + key_name):
+                name = short
+        shift_ok = name in ("left", "right")
+        if name and plain and self._edit_keys_ok() and (shift_ok or not (mods & Qt.KeyboardModifier.ShiftModifier)):
+            if self.edit_key(name, bool(mods & Qt.KeyboardModifier.ShiftModifier)):
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     def closeEvent(self, event):
         if not self._confirm_unsaved():

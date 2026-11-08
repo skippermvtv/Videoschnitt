@@ -806,4 +806,53 @@ win.project.overlays = []
 win.osel = -1
 no_errors("1.4.7: Bild-in-Bild Keyframes")
 print("OK  1.4.7: Bild-in-Bild Keyframes")
+# 1.4.8: Karaoke-Untertitel und Untertitel-Vorschau
+win.sub_karaoke.setChecked(True)
+win._on_sub_style()
+assert win.project.sub_style.karaoke is True and win.project.sub_style.karaoke_mode == "stay"
+win.sub_kar_mode.setCurrentIndex(win.sub_kar_mode.findData("active"))
+win._on_sub_style()
+assert win.project.sub_style.karaoke_mode == "active"
+win._sub_kar_color = "#00ff88"
+win._on_sub_style()
+assert win.project.sub_style.karaoke_color == "#00ff88"
+win.project.sub_style.karaoke, win.project.sub_style.karaoke_mode = False, "stay"
+win._load_sub_style()
+assert not win.sub_karaoke.isChecked()
+no_errors("1.4.8: Karaoke")
+print("OK  1.4.8: Karaoke-Untertitel")
+# 1.4.8: Tastenkürzel für den Schnitt
+_calls = []
+win._seek_project = lambda t: _calls.append(("seek", round(t, 4)))
+win.split_clip = lambda: _calls.append(("split",))
+win.delete_selected = lambda: _calls.append(("delete",))
+win.toggle_play = lambda: _calls.append(("play",))
+_dur = win.project.duration
+assert win.project.clips and _dur > 3.0
+win.timeline.set_playhead(2.0)
+_fr = win._frame_step()
+assert 1 / 61 < _fr < 1 / 23, _fr
+assert win.edit_key("right") and _calls[-1] == ("seek", round(2.0 + _fr, 4)), _calls
+assert win.edit_key("left", shift=True) and _calls[-1] == ("seek", 1.0)
+win.timeline.set_playhead(0.0)
+win.edit_key("left")
+assert _calls[-1] == ("seek", 0.0), "nicht vor den Anfang"
+win.timeline.set_playhead(_dur)
+win.edit_key("right", shift=True)
+assert _calls[-1][1] <= round(_dur - 0.01, 4), _calls[-1]
+win.edit_key("home")
+assert _calls[-1] == ("seek", 0.0)
+win.edit_key("end")
+assert abs(_calls[-1][1] - (_dur - 0.05)) < 1e-3
+assert win.edit_key("s") and _calls[-1] == ("split",)
+assert win.edit_key("delete") and _calls[-1] == ("delete",)
+assert win.edit_key("space") and _calls[-1] == ("play",)
+assert win.edit_key("x") is False
+_saved, win.project.clips = win.project.clips, []
+assert win.edit_key("s") is False, "ohne Clips nichts"
+win.project.clips = _saved
+for _n in ("_seek_project", "split_clip", "delete_selected", "toggle_play"):
+    del win.__dict__[_n]
+no_errors("1.4.8: Tastenkürzel")
+print("OK  1.4.8: Tastenkürzel")
 print("Signal-Prüfung OK")

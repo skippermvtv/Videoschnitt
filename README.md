@@ -1,6 +1,6 @@
 # FATE VIDEOSCHNITT – Videoschnitt für Windows
 
-Eigenes Videoschnittprogramm mit **Presets für YouTube, Shorts, TikTok, Reels und Instagram**, 31 Effekten (u. a. Glitch, VHS, Neon, Comic),
+Eigenes Videoschnittprogramm mit **Presets für YouTube, Shorts, TikTok, Reels und Instagram**, 47 Effekten (u. a. Glitch, VHS, Neon, Comic, Tilt-Shift, Wärmebild),
 **Bildkorrektur** (mit Farbrädern, Kurven und LUT), **Greenscreen**, **Tonspuren** (Ton trennen, Musik, Ducking), **28 Übergängen**, **Untertiteln** (auch automatisch aus Sprache),
 **Bild-in-Bild**, **Keyframe-Bewegung**, Text mit Animationen, eigener Schrift und eingebautem **Update-Check**.
 Gerendert wird mit FFmpeg (wird in die Setup.exe eingebaut – Nutzer brauchen weder Python noch FFmpeg).
@@ -91,6 +91,7 @@ Python 3.12+ und Inno Setup 6 installieren, dann `build.bat` doppelklicken.
 - **Übergänge:** Reiter *Übergänge* (Vorschaubilder entstehen beim ersten Start im Hintergrund). Doppelklick = nach dem gewählten Clip, oder auf eine Schnittstelle ziehen.
 - **Split Screen:** Mehrere Videos als Bild-in-Bild zur selben Zeit auf V2 legen (oder Medien markieren und „Gewählte Medien als Split einfügen“), Layout wählen, „Anwenden“. Technisch bekommt jeder Block ein Feld (`cell`); der Export schneidet das Bild auf das Feld zu.
 - **Geschwindigkeitskurve:** Reiter *Clip*. Punkte als „Position in %:Tempo“, z. B. `0:1, 50:0.25, 100:1`. Der Clip wird in Abschnitte geteilt (`core/speedramp.py`). Seit 1.4.3 lässt sich die Kurve auch zeichnen (`ui/curveeditor.py`, Rechenkern `core/rampgraph.py`).
+- **1.4.8:** Karaoke-Untertitel (`core/karaoke.py`), Untertitel-Vorschau (`core/subpreview.py`), zwölf neue Effekte (47 gesamt), Tastenkürzel S / ← → / Pos1 / Ende.
 - **1.4.7:** Keyframes für Bild-in-Bild (Position, Größe, Deckkraft; `core/overlaykeys.py`), fünf Bewegungsvorlagen, Rückwärts für Bild-in-Bild-Videos.
 - **1.4.6:** Bild-in-Bild-Blöcke, die gleichzeitig laufen, in eigenen Timeline-Zeilen (`Project.overlay_rows`), Chroma-Key-Vorschau (`core/keypreview.py`).
 - **1.4.5:** Lautheit der fertigen Datei wird nachgemessen und angezeigt (`core/loudcheck.py`), eigene Tempokurven speichern, Tempokurve nachträglich ersetzen oder entfernen (`ramp_id` an den Abschnitten, `speedramp.group_of/merge_group`).

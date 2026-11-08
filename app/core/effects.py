@@ -302,6 +302,96 @@ def _dutch(i, o, k, c):
                        f"scale=w={even(c.width * z)}:h={even(c.height * z)},crop={w}:{h}")
 
 
+# ------------------------------------------------------------ neu in 1.4.8
+@effect("tilt_shift", "Tilt-Shift (Miniatur-Look)", "Farbe", 60)
+def _tilt_shift(i, o, k, c):
+    a, b, g = f"{o}_a", f"{o}_b", f"{o}_g"
+    return (f"[{i}]split[{a}][{b}];[{b}]gblur=sigma={n(4 + 14 * k, 1)}[{g}];"
+            f"[{a}][{g}]blend=all_expr='A+(B-A)*clip((abs(Y/H-0.5)-0.12)/0.22,0,1)',"
+            f"eq=saturation={n(1 + 0.35 * k)}:contrast={n(1 + 0.08 * k)}[{o}]")
+
+
+@effect("zoom_blur", "Zoom-Unschärfe (Speed-Blur)", "Bewegung", 50)
+def _zoom_blur(i, o, k, c):
+    a, b, d, b2, d2, ab = f"{o}_a", f"{o}_b", f"{o}_c", f"{o}_b2", f"{o}_c2", f"{o}_ab"
+    w, h = even(c.width), even(c.height)
+    z1, z2 = 1 + 0.025 * (0.4 + k), 1 + 0.06 * (0.4 + k)
+    return (f"[{i}]split=3[{a}][{b}][{d}];"
+            f"[{b}]scale={even(w * z1)}:{even(h * z1)},crop={w}:{h}[{b2}];"
+            f"[{d}]scale={even(w * z2)}:{even(h * z2)},crop={w}:{h}[{d2}];"
+            f"[{a}][{b2}]blend=all_mode=average[{ab}];"
+            f"[{ab}][{d2}]blend=all_expr='A*0.66+B*0.34'[{o}]")
+
+
+@effect("stop_motion", "Stop-Motion (Ruckeln)", "Bewegung", 60)
+def _stop_motion(i, o, k, c):
+    low = max(3, int(round(c.fps * (0.6 - 0.45 * k))))
+    return chain(i, o, f"fps={low},fps={c.fps}")
+
+
+@effect("light_leak", "Lichtleck (warmer Schein)", "Farbe", 60)
+def _light_leak(i, o, k, c):
+    a, b, g = f"{o}_a", f"{o}_b", f"{o}_g"
+    sw, sh = max(8, even(c.width / 8)), max(8, even(c.height / 8))
+    v = "exp(-pow((X/W-(0.5+0.45*sin(T*0.6)))*2.4,2))*(1-0.35*Y/H)"
+    return (f"[{i}]split[{a}][{b}];"
+            f"[{b}]scale={sw}:{sh},format=rgb24,geq=r='255*{v}':g='120*{v}':b='20*{v}',"
+            f"scale={even(c.width)}:{even(c.height)}:flags=bilinear,format=rgb24[{g}];"
+            f"[{a}]format=rgb24[{a}f];[{a}f][{g}]blend=all_mode=screen:all_opacity={n(0.35 + 0.6 * k)},format=gbrp,format=yuv420p[{o}]")
+
+
+@effect("pencil", "Bleistiftskizze", "Farbe", 60)
+def _pencil(i, o, k, c):
+    a, b, g = f"{o}_a", f"{o}_b", f"{o}_g"
+    return (f"[{i}]format=gray,split[{a}][{b}];[{b}]negate,gblur=sigma={n(2 + 14 * k, 1)}[{g}];"
+            f"[{a}][{g}]blend=all_mode=dodge,format=yuv420p[{o}]")
+
+
+@effect("thermal", "Wärmebild", "Farbe", 80)
+def _thermal(i, o, k, c):
+    a, b, t = f"{o}_a", f"{o}_b", f"{o}_t"
+    return (f"[{i}]split[{a}][{b}];[{b}]pseudocolor=preset=inferno[{t}];"
+            f"[{a}][{t}]blend=all_expr='A+(B-A)*{n(0.3 + 0.7 * k)}',format=yuv420p[{o}]")
+
+
+def _keep_color(i, o, k, rgb: str):
+    return chain(i, o, f"colorhold=color=0x{rgb}:similarity={n(0.5 - 0.38 * k)}:blend=0.1")
+
+
+@effect("keep_red", "Nur Rot behalten", "Farbe", 60)
+def _keep_red(i, o, k, c):
+    return _keep_color(i, o, k, "ff0000")
+
+
+@effect("keep_green", "Nur Grün behalten", "Farbe", 60)
+def _keep_green(i, o, k, c):
+    return _keep_color(i, o, k, "00ff00")
+
+
+@effect("keep_blue", "Nur Blau behalten", "Farbe", 60)
+def _keep_blue(i, o, k, c):
+    return _keep_color(i, o, k, "0000ff")
+
+
+@effect("strobe", "Strobe (Blitzlicht)", "Glitch", 50)
+def _strobe(i, o, k, c):
+    return chain(i, o, f"drawbox=x=0:y=0:w=iw:h=ih:color=black@1:t=fill:"
+                       f"enable='lt(mod(t*{n(2 + 6 * k, 2)},1),0.4)'")
+
+
+@effect("double_exposure", "Doppelbelichtung", "Farbe", 55)
+def _double_exposure(i, o, k, c):
+    a, b, m = f"{o}_a", f"{o}_b", f"{o}_m"
+    return (f"[{i}]split[{a}][{b}];[{b}]hflip,eq=brightness=-0.05[{m}];"
+            f"[{a}][{m}]blend=all_mode=screen:all_opacity={n(0.3 + 0.55 * k)}[{o}]")
+
+
+@effect("xray", "Röntgen", "Farbe", 70)
+def _xray(i, o, k, c):
+    return chain(i, o, f"format=gray,negate,eq=contrast={n(1.1 + 0.9 * k)}:brightness={n(-0.05 * k)},"
+                       f"format=rgb24,colorchannelmixer=rr={n(1 - 0.5 * k)}:gg={n(1 - 0.15 * k)}:bb=1.0,format=yuv420p")
+
+
 # ------------------------------------------------------------ Masken (ab 1.3.1)
 # Ein Masken-Effekt wirkt nur in einem Bereich (Ellipse oder Rechteck), der mit einem Objekt mitwandern kann.
 # Block-Einstellung "mask": {"shape": "ellipse"|"rect", "x", "y", "w", "h" (Mitte und Größe in % des Bildes),

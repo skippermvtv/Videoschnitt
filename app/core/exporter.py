@@ -356,6 +356,62 @@ def _text_width(font: str, text: str, size: int) -> float:
         return max((len(l) for l in text.split("\n")), default=1) * size * 0.52
 
 
+def _karaoke_drawtext(layer: TextLayer, idx: int, W: int, H: int, tmpdir: Path, size: int, max_chars: int,
+                      font: str, fontopt: str, border: int) -> list[str]:
+    """Jedes Wort einzeln an fester Stelle: in der Grundfarbe bis zu seinem Beginn, danach in der Hervorhebungsfarbe.
+    Gibt [] zurück, wenn der Eintrag nicht als Karaoke gezeichnet werden kann (dann zeichnet der Aufrufer normal)."""
+    from . import karaoke
+    S, E = float(layer.start), float(layer.end)
+    words = karaoke.word_times(layer.text, S, E)
+    if not words or len(words) > karaoke.MAX_WORDS:
+        return []
+    measure = (lambda t: _text_width(font, t, size)) if font else (lambda t: len(t) * size * 0.52)
+    rows = karaoke.layout(layer.text, measure, W, max_chars)
+    if not rows:
+        return []
+    pitch = int(size * 1.25) + size // 6
+    block_h = len(rows) * pitch - size // 6
+    vertical = H > W
+    y0 = {"top": H * 0.14, "center": (H - block_h) / 2.0,
+          "bottom": H * (0.68 if vertical else 0.80)}.get(layer.position, H * 0.8)
+    y0 = max(0.0, min(y0, H * 0.96 - block_h))          # mehrere Zeilen sollen nicht unten aus dem Bild ragen
+    hi = layer.karaoke
+    only_active = layer.karaoke_mode == "active"
+    common = f"fontsize={size}:fontcolor=%s:borderw={border}:bordercolor={layer.border_color}"
+    out: list[str] = []
+    k = 0
+
+    def one(text: str, color: str, x: float, y: float, cond: str) -> str:
+        nonlocal k
+        tf = tmpdir / f"text{idx}_k{k}.txt"
+        k += 1
+        tf.write_text(text, encoding="utf-8")
+        return (f"drawtext={fontopt}textfile='{_esc_path(str(tf))}':{common % color}:x={x:.1f}:y={y:.1f}:"
+                f"enable='{cond}'")
+
+    if layer.box:                                        # Kasten: unsichtbarer Text im natürlichen Satz dahinter
+        tf = tmpdir / f"text{idx}_kbox.txt"
+        tf.write_text("\n".join(" ".join(w for w, _x in row) for row in rows), encoding="utf-8")
+        out.append(f"drawtext={fontopt}textfile='{_esc_path(str(tf))}':fontsize={size}:fontcolor=black@0:borderw=0:"
+                   f"x=(w-text_w)/2:y={y0:.1f}:line_spacing={size // 6}:box=1:boxcolor=black@0.55:"
+                   f"boxborderw={max(6, size // 4)}:enable='between(t,{S:.3f},{E:.3f})'")
+    wi = 0
+    for li, row in enumerate(rows):
+        y = y0 + li * pitch
+        for w, x in row:
+            _w, t0, t1 = words[wi]
+            wi += 1
+            if only_active:
+                base = f"between(t,{S:.3f},{E:.3f})*not(between(t,{t0:.3f},{t1:.3f}))"
+                lit = f"between(t,{t0:.3f},{t1:.3f})"
+            else:
+                base = f"between(t,{S:.3f},{t0:.3f})"
+                lit = f"between(t,{t0:.3f},{E:.3f})"
+            out.append(one(w, layer.color, x, y, base))
+            out.append(one(w, hi, x, y, lit))
+    return out
+
+
 def _drawtext(layer: TextLayer, idx: int, W: int, H: int, tmpdir: Path) -> list[str]:
     """Gibt eine oder mehrere drawtext-Filter zurück (Schreibmaschine = mehrere Schritte)."""
     size = max(12, int(H * layer.size_pct / 100.0))
@@ -368,6 +424,10 @@ def _drawtext(layer: TextLayer, idx: int, W: int, H: int, tmpdir: Path) -> list[
     fontopt = f"fontfile='{_esc_path(font)}':" if font else ""
     border = max(2, size // 14)
     S, E = float(layer.start), float(layer.end)
+    if getattr(layer, "karaoke", ""):
+        kar = _karaoke_drawtext(layer, idx, W, H, tmpdir, size, max_chars, font, fontopt, border)
+        if kar:
+            return kar
     D = max(0.05, min(float(layer.anim_dur), (E - S) / 2.0 if E > S else 0.5))
     anim = layer.anim if layer.anim in ("none", "fade", "slide_up", "slide_left", "bounce", "typewriter",
                                         "shake", "blink") else "none"

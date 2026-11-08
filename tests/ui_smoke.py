@@ -602,6 +602,55 @@ def main() -> int:
         assert o47.keys == [] and win.ov_x.isEnabled() and not win.ov_kf_del.isEnabled()
         win.remove_overlay()
         assert len(win.project.overlays) == n_ov47
+    with section("Untertitel: Karaoke und Vorschau"):
+        from app.core.project import SubtitleCue as _Cue48
+        n_sub48 = len(win.project.subtitles)
+        win.project.subtitles.append(_Cue48(0.2, 1.2, "Hallo schöne Welt"))
+        win._load_sub_list(len(win.project.subtitles) - 1)
+        assert win.sub_kar_mode.isEnabled() is False and win.btn_sub_kar_color.isEnabled() is False
+        win.sub_karaoke.setChecked(True)
+        assert win.project.sub_style.karaoke is True
+        assert win.sub_kar_mode.isEnabled() and win.btn_sub_kar_color.isEnabled()
+        win.sub_kar_mode.setCurrentIndex(win.sub_kar_mode.findData("active"))
+        assert win.project.sub_style.karaoke_mode == "active"
+        win.sub_karaoke.setChecked(False)
+        assert win.project.sub_style.karaoke is False and not win.sub_kar_mode.isEnabled()
+        win.project.subtitles = win.project.subtitles[:n_sub48]
+        win._load_sub_list()
+    with section("Tastenkürzel (S, Pfeile, Pos1/Ende, Schutz in Eingabefeldern)"):
+        from PySide6.QtTest import QTest as _QT48
+        calls48 = []
+        win._seek_project = lambda t: calls48.append(("seek", round(t, 3)))
+        win.split_clip = lambda: calls48.append(("split",))
+        win.delete_selected = lambda: calls48.append(("delete",))
+        win.toggle_play = lambda: calls48.append(("play",))
+        try:
+            assert win.project.clips
+            win.timeline.set_playhead(1.0)
+            fw = win.timeline
+            _QT48.keyClick(fw, Qt.Key.Key_S)
+            _QT48.keyClick(fw, Qt.Key.Key_Right)
+            _QT48.keyClick(fw, Qt.Key.Key_Left, Qt.KeyboardModifier.ShiftModifier)
+            _QT48.keyClick(fw, Qt.Key.Key_Home)
+            _QT48.keyClick(fw, Qt.Key.Key_End)
+            kinds = [c[0] for c in calls48]
+            assert kinds == ["split", "seek", "seek", "seek", "seek"], calls48
+            assert calls48[1][1] > 1.0 and abs(calls48[2][1] - 0.0) < 1e-6 and calls48[3][1] == 0.0, calls48
+            orig_fw = mw.QApplication.focusWidget
+            try:
+                for blocker in (win.sub_text, win.sub_size, win.sub_pos, win.sub_list):
+                    mw.QApplication.focusWidget = staticmethod(lambda b=blocker: b)
+                    assert win._edit_keys_ok() is False, blocker
+                    n_before = len(calls48)
+                    _QT48.keyClick(win.timeline, Qt.Key.Key_S)
+                    assert len(calls48) == n_before, f"{type(blocker).__name__}: Taste darf nicht schneiden"
+                mw.QApplication.focusWidget = staticmethod(lambda: win.timeline)
+                assert win._edit_keys_ok() is True
+            finally:
+                mw.QApplication.focusWidget = orig_fw
+        finally:
+            for n_ in ("_seek_project", "split_clip", "delete_selected", "toggle_play"):
+                win.__dict__.pop(n_, None)
     with section("Ton verbessern"):
         # Ton verbessern
         win._select_clip(0)
