@@ -24,7 +24,7 @@ def build(project: Project, intro: str = "Anfang") -> dict:
 
     Liegt kein benannter Marker bei 0:00, wird vorn ein Kapitel `intro` ergänzt (YouTube verlangt 0:00) und das als Hinweis gemeldet."""
     total = project.duration
-    items: list[tuple[int, str]] = []
+    raw: list[tuple[float, str]] = []
     unnamed = beyond = 0
     for m in project.markers:
         name = " ".join(str(m.get("name") or "").split())
@@ -34,8 +34,9 @@ def build(project: Project, intro: str = "Anfang") -> dict:
         elif total > 0 and t >= total:
             beyond += 1
         else:
-            items.append((int(t), name))
-    items.sort()
+            raw.append((t, name))
+    raw.sort(key=lambda x: x[0])              # nach echter Zeit, nicht nach Namen
+    items: list[tuple[int, str]] = [(int(t), n) for t, n in raw]
     notes: list[str] = []
     if unnamed:
         notes.append(f"{unnamed} Marker ohne Namen werden nicht als Kapitel verwendet.")

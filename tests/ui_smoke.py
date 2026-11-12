@@ -913,12 +913,22 @@ def main() -> int:
     with section("Export-Thread misst die Lautheit"):
         from app.ui.workers import ExportWorker
         _outp = str(Path(tempfile.mkdtemp()) / "m.mp4")
-        _cmd, _tot, _tmpd = mw.exporter.build_command(win.project, _outp, draft=True, preview_height=180, max_seconds=2.0)
+        # eigenes, einfaches Projekt: der Test prüft den Thread und die Lautheitsmessung, nicht den Zustand der Oberfläche
+        from app.core.project import Project as _P57
+        _pj57 = _P57(format_id=win.project.format_id, export_id="fast_draft")
+        _c57 = __import__("copy").deepcopy(win.project.clips[0])
+        _c57.denoise = _c57.voice = 0
+        _c57.grade, _c57.keyframes, _c57.transition, _c57.stabilize = {}, [], "", 0
+        _pj57.clips = [_c57]
+        _cmd, _tot, _tmpd = mw.exporter.build_command(_pj57, _outp, draft=True, preview_height=180, max_seconds=2.0)
         _errs: list = []
         _wk = ExportWorker(_cmd, _tot, None, measure_path=_outp)
         _wk.done.connect(_errs.append)
         _wk.start()
-        assert _wk.wait(180000), "Export-Thread wurde nicht fertig"
+        if not _wk.wait(180000):
+            _wk.cancel()
+            _wk.wait(20000)
+            raise AssertionError("Export-Thread wurde nicht fertig; Befehl: " + " ".join(str(a) for a in _cmd)[:1500])
         app.processEvents()
         assert _errs == [""], _errs
         assert Path(_outp).exists() and Path(_outp).stat().st_size > 0
