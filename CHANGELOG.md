@@ -1,5 +1,25 @@
 # Änderungen
 
+## 1.5.0
+- **Marker** (Taste M, Menü „Bearbeiten → Marker“): Marker am Abspielkopf setzen, mit Strg+← / Strg+→ von Marker zu Marker springen, benennen, alle entfernen. Marker sind in der Timeline sichtbar, ziehen Schnitte und Abspielkopf an und werden mit dem Projekt gespeichert.
+- **Beat-Sync** (Reiter „Ton“, Audioblock wählen → „Beats erkennen …“): findet Tempo und Schläge der Musik. Wahlweise Marker auf jeden, jeden 2. oder jeden 4. Beat und/oder „Clips auf den Beat schneiden“: Die Schnitte zwischen den Clips rasten auf die Beats ein (Länge des Clipendes wird angepasst; Clips mit Tempokurve und zu kurze Quellen bleiben unverändert). Bei schwachem Rhythmus (Sprache, ruhige Musik) kommt ein Hinweis.
+- **Untertitel-Datei beim Export** (Reiter „Format“, Gruppe „Untertitel beim Export“): „Untertitel ins Bild einbrennen“ (wie bisher, jetzt abschaltbar) und „zusätzlich als .srt-Datei neben das Video speichern“ (z. B. für YouTube). Die Datei heißt wie das Video, ist UTF-8 und passt zur Videolänge. Sind noch keine Untertitel da, fragt das Programm beim Export, ob es sie mit der Spracherkennung erzeugen soll. Bei „Mehrere Formate exportieren“ gibt es eine SRT neben dem ersten Video.
+- **Karaoke mit echten Wortzeiten:** Die Spracherkennung liefert jetzt die Zeit jedes Wortes mit. Das Karaoke nutzt sie; bei importierten SRT-Dateien, getippten oder nachträglich geänderten Texten wird weiter nach Wortlänge verteilt. Lange Einträge werden an Wortgrenzen mit den echten Zeiten geteilt.
+- **GIF-Export** (Datei → „Als animiertes GIF exportieren …“): Breite und Bilder pro Sekunde wählbar, optimierte Farbpalette, Endlosschleife, höchstens 30 s, mit Größenschätzung.
+- **Drehung für Bild-in-Bild:** feste Drehung und als Keyframe (neue Vorlagen „Reinwirbeln“ und „Wackeln“). Die Größe bleibt beim Drehen gleich, die Ecken bleiben durchsichtig.
+- **Aktuelles Bild als PNG speichern** (Datei-Menü): genau das Bild, das der Export an der Stelle des Abspielkopfs zeigt (mit Effekten, Text, Logo und Untertiteln), in voller Formatgröße.
+- Neue Tests: `test_markers.py`, `test_beats.py`, `test_subtitle_file.py`, `test_word_times.py`, `test_gif.py`, `test_overlay_rot.py`, `test_stillframe.py`; erweiterte Signal- und Oberflächenprüfungen.
+- Nicht enthalten: Gesichtsverfolgung für automatisches Hochkant, Text-Animationen, Proxy-Dateien für flüssige Vorschau.
+
+## 1.4.9
+- **Stille entfernen** (Reiter „Clip“, Gruppe „Schneiden“): findet Pausen im Ton (Schwelle in dB und Mindestlänge einstellbar, dazu ein Puffer vor und nach dem Sprechen) und teilt den Clip in die Stücke dazwischen („Jump-Cut“). Das Fenster zeigt vor dem Anwenden, wie viele Pausen und wie viele Sekunden entfallen. Ein Strg+Z macht alles in einem Schritt rückgängig. Geht nicht bei Standbildern, Clips ohne Ton, rückwärts laufenden Clips und Abschnitten einer Tempokurve (dann kommt eine Meldung).
+- **Szenenerkennung** („An Szenenwechseln teilen“): erkennt harte Bildwechsel und teilt den Clip dort. Schwelle und kürzeste Szene sind einstellbar; die Mindestlänge lässt sich ändern, ohne neu zu analysieren.
+- **Wasserzeichen / Logo** (Reiter „Format“): ein Bild (am besten PNG mit Transparenz) liegt über dem fertigen Video, mit Ecke (vier zur Wahl), Größe (% der Breite) und Deckkraft. Es gilt für alle Clips und auch für „Mehrere Formate exportieren“ in jedem Format, mit gleichem Rand (2,5 % der Breite). Fehlt die Datei beim Export, kommt eine klare Meldung.
+- **Duplizieren** (Strg+D, Knopf ⧉ neben dem Papierkorb, Menü „Bearbeiten“): Clip, Bild-in-Bild, Audioblock oder Effekt-Block als Kopie direkt dahinter. Beim Clip wandert der Übergang zum nächsten Clip an die Kopie, ein getrennter Ton wird mitkopiert, eine Tempokurve nicht. Ein Effekt-Block, der bis zum Ende reicht, wird als Kopie darübergelegt.
+- **Fehler behoben (Export):** Bei Bewegungs-Keyframes mit Zoom konnte die Seitenverhältnis-Angabe (SAR) zwischen Clips abweichen und der Zusammenfügen-Schritt scheiterte; vor dem Zusammenfügen wird sie jetzt auf 1 gesetzt. Vom neuen Pixeltest gefunden.
+- Neue Tests: `test_silence.py`, `test_scenes.py`, `test_watermark.py` (Pixelvergleich in 16:9, 9:16 und 1:1), `test_duplicate.py`; erweiterte Signal- und Oberflächenprüfungen.
+- Nicht enthalten: Whisper-Wortzeiten für Karaoke, Beat-Synchronisation, GIF-Export, Keyframes für Drehung.
+
 ## 1.4.8
 - **Karaoke-Untertitel** (Reiter „Untertitel“): „Karaoke: gesprochenes Wort hervorheben“ zeigt jedes Wort zu seiner Zeit in einer Hervorhebungsfarbe. Zwei Arten: gesprochene Wörter bleiben hervorgehoben, oder nur das gerade gesprochene Wort leuchtet. Die Wortzeiten werden aus der Länge der Wörter über die Dauer des Eintrags verteilt, das klappt auch für importierte SRT-Dateien und selbst getippte Einträge. Whisper-Wortzeiten werden noch nicht genutzt. Einträge mit mehr als 60 Wörtern erscheinen normal.
 - **Untertitel-Vorschau**: „Vorschau …“ zeigt ein Bild mit dem gewählten Untertitel so wie im Export (auch mit Karaoke-Farbe), ohne zu exportieren.

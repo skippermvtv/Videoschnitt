@@ -376,6 +376,20 @@ class Timeline(QWidget):
             x = self._x(self._drop_t)
             p.drawLine(int(x), int(RULER_H), int(x), int(RULER_H + V_H))
 
+        # Marker (Taste M): Dreieck im Lineal, dünne Linie durch alle Spuren, Name daneben
+        for m in proj.markers:
+            mx = self._x(float(m.get("t", 0.0)))
+            if mx < left - 8 or mx > left + avail + 8:
+                continue
+            p.setPen(QPen(QColor("#4ad0ff"), 1, Qt.PenStyle.DashLine))
+            p.drawLine(int(mx), int(RULER_H), int(mx), self.height() - 4)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor("#4ad0ff"))
+            p.drawPolygon(QPolygonF([QPointF(mx - 5, 14.0), QPointF(mx + 5, 14.0), QPointF(mx, RULER_H - 2)]))
+            if m.get("name"):
+                p.setPen(QColor("#4ad0ff"))
+                p.drawText(QPointF(mx + 7, 22.0), str(m["name"]))
+
         # Abspielkopf
         if self._playhead >= 0:
             x = self._x(self._playhead)
@@ -533,7 +547,7 @@ class Timeline(QWidget):
             self.update()
 
     def _snap_points(self, skip: int, skip_fx: int = -1) -> list[float]:
-        pts = [0.0, self._total()]
+        pts = [0.0, self._total()] + [float(m.get("t", 0.0)) for m in self._project.markers]
         for k in range(len(self._project.effects)):
             if k != skip_fx:
                 pts += list(self._project.fx_span(k))

@@ -236,6 +236,7 @@ class OverlayClip:
     keys: list = field(default_factory=list)   # Keyframes: [{"t":0..1,"x":%,"y":%,"size":%,"opacity":%}] (siehe core/overlaykeys.py)
     anim_ease: bool = True         # sanfte Übergänge zwischen den Keyframes
     reverse: bool = False          # Video rückwärts abspielen (nicht für Standbilder)
+    rot: float = 0.0               # Drehung in Grad (im Uhrzeigersinn), −720 … 720; auch Keyframe-Feld "rot"
 
     def __post_init__(self):
         if not self.out_pt:
@@ -266,6 +267,7 @@ class TextLayer:
     box: bool = False          # halbtransparenter Kasten hinter dem Text
     karaoke: str = ""          # Hervorhebungsfarbe; leer = kein Karaoke (Wort für Wort, siehe core/karaoke.py)
     karaoke_mode: str = "stay"  # stay: gesprochene Wörter bleiben hervorgehoben | active: nur das aktuelle Wort
+    words: list = field(default_factory=list)   # echte Wortzeiten (siehe SubtitleCue.words); leer = nach Wortlänge verteilen
 
 
 TEXT_ANIMS = [("none", "Keine"), ("fade", "Einblenden / Ausblenden"), ("slide_up", "Von unten hereinfahren"),
@@ -278,6 +280,7 @@ class SubtitleCue:
     start: float = 0.0
     end: float = 2.0
     text: str = ""
+    words: list = field(default_factory=list)   # echte Wortzeiten aus der Spracherkennung: [[Wort, Beginn, Ende], …] in Sekunden ab Start des Eintrags
 
 
 @dataclass
@@ -316,6 +319,13 @@ class Project:
     ducking_amount: float = 0.6    # 0 … 1
     normalize: bool = False        # Lautheit angleichen (siehe lufs_target)
     lufs_target: float = -14.0     # Ziel der Angleichung: −14 (YouTube/TikTok/Shorts), −16 (Podcast), −23 (Fernsehen, EBU R128)
+    sub_burn: bool = True          # Untertitel ins Bild einbrennen (aus = nur als Datei, siehe sub_srt)
+    sub_srt: bool = False          # beim Export zusätzlich eine .srt-Datei neben das Video legen (z. B. für YouTube)
+    markers: list = field(default_factory=list)   # Marker: [{"t": Sekunden, "name": Text}] (siehe core/markers.py)
+    watermark: str = ""            # Logo/Wasserzeichen (Bilddatei) über dem ganzen Video; leer = keins
+    wm_corner: str = "br"          # tl | tr | bl | br
+    wm_size: float = 14.0          # Breite in % der Bildbreite
+    wm_opacity: float = 80.0       # 0 … 100 %
 
     def overlap_after(self, i: int) -> float:
         nxt = self.clips[i + 1].length if i + 1 < len(self.clips) else None
@@ -466,7 +476,8 @@ class Project:
         d = json.loads(text)
         p = cls(**{k: v for k, v in d.items() if k in (
             "format_id", "export_id", "layout", "look_id", "effects", "fade_in", "fade_out",
-            "track_volume", "track_mute", "ducking", "ducking_amount", "normalize", "lufs_target")})
+            "track_volume", "track_mute", "ducking", "ducking_amount", "normalize", "lufs_target",
+            "watermark", "wm_corner", "wm_size", "wm_opacity", "markers", "sub_burn", "sub_srt")})
         clip_fields = set(Clip.__dataclass_fields__)
         audio_fields = set(AudioClip.__dataclass_fields__)
         text_fields = set(TextLayer.__dataclass_fields__)
@@ -481,6 +492,8 @@ class Project:
         p.audio_clips = [AudioClip(**{k: v for k, v in a.items() if k in audio_fields})
                          for a in d.get("audio_clips", [])]
         p.texts = [TextLayer(**{k: v for k, v in t.items() if k in text_fields}) for t in d.get("texts", [])]
+        from .markers import clean as _clean_markers
+        p.markers = _clean_markers(p.markers)
         return p
 
     @classmethod

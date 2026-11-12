@@ -90,6 +90,17 @@ jobs:
           T tests/test_overlay_keys.py $env:RUNNER_TEMP
           T tests/test_effects_new.py
           T tests/test_karaoke.py $env:RUNNER_TEMP
+          T tests/test_silence.py $env:RUNNER_TEMP
+          T tests/test_scenes.py $env:RUNNER_TEMP
+          T tests/test_watermark.py $env:RUNNER_TEMP
+          T tests/test_duplicate.py $env:RUNNER_TEMP
+          T tests/test_markers.py $env:RUNNER_TEMP
+          T tests/test_gif.py $env:RUNNER_TEMP
+          T tests/test_subtitle_file.py $env:RUNNER_TEMP
+          T tests/test_overlay_rot.py $env:RUNNER_TEMP
+          T tests/test_stillframe.py $env:RUNNER_TEMP
+          T tests/test_word_times.py $env:RUNNER_TEMP
+          T tests/test_beats.py $env:RUNNER_TEMP
           T tests/test_loudness.py $env:RUNNER_TEMP
           T tests/test_overlay_audio.py $env:RUNNER_TEMP
           T tests/test_multiexport.py $env:RUNNER_TEMP

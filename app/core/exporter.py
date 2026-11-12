@@ -255,6 +255,7 @@ def _motion_chain(c: Clip, W: int, H: int) -> str:
         sh = f"trunc({H}*({zoom})/100/2)*2"
         parts.append(f"scale=w='{sw}':h='{sh}':eval=frame:flags=bilinear")
         parts.append(f"crop={W}:{H}:x='({sw}-{W})/2*(1+({px})/100)':y='({sh}-{H})/2*(1+({py})/100)'")
+        parts.append("setsar=1")                  # scale rechnet das Seitenverhältnis pro Bild neu: concat verträgt kein wechselndes SAR
     return ",".join(parts)
 
 
@@ -278,6 +279,9 @@ def _free_overlay_chain(o, k: int, fps, W: int, ow: int, osp: float, olen: float
         if o.border:
             b = max(2, ow // 80)
             ch += f",pad=iw+{2 * b}:ih+{2 * b}:{b}:{b}:white"
+        rot = max(-720.0, min(720.0, float(getattr(o, "rot", 0.0) or 0.0)))
+        if abs(rot) > 0.01:                    # feste Drehung: das Bild wird größer, damit nichts abgeschnitten wird
+            ch += f",rotate=a={rot:.3f}*PI/180:ow=rotw({rot:.3f}*PI/180):oh=roth({rot:.3f}*PI/180):c=black@0"
         if o.opacity < 99.5:
             ch += f",colorchannelmixer=aa={max(0.0, o.opacity) / 100.0:.3f}"
         if o.fade_in > 0:
@@ -293,15 +297,22 @@ def _free_overlay_chain(o, k: int, fps, W: int, ow: int, osp: float, olen: float
     ey = _interp(keys, "y", olen, ease, f"(t-{o.start:.3f})")
     esz = _interp(keys, "size", olen, ease, "t")
     eop = _interp(keys, "opacity", olen, ease, "T")
+    erot = _interp(keys, "rot", olen, ease, "t")
+    rotating = not (_is_const(erot) and abs(float(erot)) < 0.01)
     big = max(k_["size"] for k_ in keys)
     ow_max = max(16, int(W * big / 100.0) // 2 * 2)
     ch = f"{head},scale={ow_max}:-2,format=rgba"
     key = chromakey_filters(o)
     if key:
         ch += "," + key + ",format=rgba"
+    ref_w = ow_max
     if o.border:
         b = max(2, ow_max // 80)
         ch += f",pad=iw+{2 * b}:ih+{2 * b}:{b}:{b}:white"
+        ref_w = ow_max + 2 * b
+    if rotating:                               # Drehen auf einer festen Fläche (Diagonale), damit die Größe gleich bleibt
+        ang = f"({erot})*PI/180" if not _is_const(erot) else f"{float(erot):.4f}*PI/180"
+        ch += f",rotate=a='{ang}':ow='hypot(iw,ih)':oh='hypot(iw,ih)':c=black@0"
     if _is_const(eop):
         if float(eop) < 99.5:
             ch += f",colorchannelmixer=aa={max(0.0, float(eop)) / 100.0:.3f}"
@@ -312,7 +323,10 @@ def _free_overlay_chain(o, k: int, fps, W: int, ow: int, osp: float, olen: float
     if o.fade_out > 0:
         fo = min(o.fade_out, olen)
         ch += f",fade=t=out:st={max(0.0, olen - fo):.3f}:d={fo:.3f}:alpha=1"
-    if _is_const(esz):
+    if rotating:                               # Fläche im gleichen Verhältnis verkleinern/vergrößern wie das Bild
+        fac = f"({W}*({esz})/100/{ref_w})" if not _is_const(esz) else f"({max(16, int(W * float(esz) / 100.0) // 2 * 2)}/{ref_w})"
+        ch += f",scale=w='trunc(iw*{fac}/2)*2':h='trunc(ih*{fac}/2)*2':eval=frame:flags=bilinear"
+    elif _is_const(esz):
         want = max(16, int(W * float(esz) / 100.0) // 2 * 2)
         if abs(want - ow_max) > 1:
             ch += f",scale={want}:-2"
@@ -320,6 +334,32 @@ def _free_overlay_chain(o, k: int, fps, W: int, ow: int, osp: float, olen: float
         sw = f"trunc({W}*({esz})/100/2)*2"
         ch += f",scale=w='{sw}':h='trunc(ow*ih/iw/2)*2':eval=frame:flags=bilinear"
     return ch, f"x='W*({ex})/100-w/2':y='H*({ey})/100-h/2'"
+
+
+WM_CORNERS = {"tl": "Oben links", "tr": "Oben rechts", "bl": "Unten links", "br": "Unten rechts"}
+
+
+def _watermark(project: Project, graph: list[str], cur: str, W: int, fps) -> str:
+    """Logo über das fertige Bild legen (nach Overlays und Text). Gibt den neuen Ausgangsnamen zurück."""
+    from .project import is_image_path
+    path = (getattr(project, "watermark", "") or "").strip()
+    if not path:
+        return cur
+    if not Path(path).is_file():
+        raise ExportError(f"Wasserzeichen: Die Datei wurde nicht gefunden:\n{path}\nIm Reiter „Format“ eine andere wählen oder entfernen.")
+    if not is_image_path(path):
+        raise ExportError("Wasserzeichen: Bitte eine Bilddatei wählen (PNG mit Transparenz ist am besten).")
+    ow = max(16, int(W * max(2.0, min(float(project.wm_size), 80.0)) / 100.0) // 2 * 2)
+    m = max(4, int(W * 0.025))
+    pos = {"tl": f"x={m}:y={m}", "tr": f"x=W-w-{m}:y={m}", "bl": f"x={m}:y=H-h-{m}",
+           "br": f"x=W-w-{m}:y=H-h-{m}"}.get(project.wm_corner, f"x=W-w-{m}:y=H-h-{m}")
+    op = max(0.0, min(float(project.wm_opacity), 100.0)) / 100.0
+    chain = f"movie='{_esc_path(path)}',loop=loop=-1:size=1,setpts=N/({fps}*TB),fps={fps},scale={ow}:-2,format=rgba"
+    if op < 0.995:
+        chain += f",colorchannelmixer=aa={op:.3f}"
+    graph.append(chain + "[wm]")
+    graph.append(f"[{cur}][wm]overlay={pos}:shortest=1:format=auto[vwm]")
+    return "vwm"
 
 
 def _layout_chain(i: int, W: int, H: int, mode: str) -> str:
@@ -362,7 +402,7 @@ def _karaoke_drawtext(layer: TextLayer, idx: int, W: int, H: int, tmpdir: Path, 
     Gibt [] zurück, wenn der Eintrag nicht als Karaoke gezeichnet werden kann (dann zeichnet der Aufrufer normal)."""
     from . import karaoke
     S, E = float(layer.start), float(layer.end)
-    words = karaoke.word_times(layer.text, S, E)
+    words = karaoke.word_times(layer.text, S, E, getattr(layer, "words", None))
     if not words or len(words) > karaoke.MAX_WORDS:
         return []
     measure = (lambda t: _text_width(font, t, size)) if font else (lambda t: len(t) * size * 0.52)
@@ -701,7 +741,7 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
             cur = f"vl{oj}"
         n_ov += 1
     from . import subtitles as _subs
-    layers = list(project.texts) + _subs.cue_layers(project.subtitles, project.sub_style, limit=total)
+    layers = list(project.texts) + (_subs.cue_layers(project.subtitles, project.sub_style, limit=total) if project.sub_burn else [])
     k = 0
     for ti, t in enumerate(layers):
         if not t.text.strip():
@@ -711,6 +751,8 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
             graph.append(f"[{cur}]{f}[{nxt}]")
             cur = nxt
             k += 1
+
+    cur = _watermark(project, graph, cur, W, fps)
 
     tail = []
     if project.fade_in > 0:

@@ -8,7 +8,10 @@ SHORTCUTS = [
     ("Doppelklick auf das Bild", "Vollbild-Vorschau (Esc beendet, Leertaste startet/stoppt)"),
     ("Strg+E", "Exportieren"),
     ("Leertaste", "Abspielen / Pause"),
-    ("Entf", "Gewählten Clip, Audioblock oder Bild-in-Bild löschen"),
+    ("Entf", "Gewählten Clip, Audioblock, Bild-in-Bild oder Effekt-Block löschen"),
+    ("Strg+D", "Gewählten Block duplizieren (Kopie direkt dahinter)"),
+    ("M", "Marker am Abspielkopf setzen (am selben Punkt noch einmal = entfernen)"),
+    ("Strg+← / Strg+→", "Zum vorherigen / nächsten Marker springen"),
     ("S", "Gewählten Clip am Abspielkopf teilen"),
     ("← / →", "Ein Bild zurück / vor (mit Umschalt: eine Sekunde)"),
     ("Pos1 / Ende", "Zum Anfang / Ende des Projekts springen"),
@@ -19,9 +22,9 @@ STEPS = [
     ("1. Importieren", "Im Reiter „Medien“ (oben links) Videos, Bilder und Musik ins Fenster ziehen oder „Importieren“ klicken. "
                        "Doppelklick auf ein Vorschaubild legt die Datei auf die Timeline."),
     ("2. Schneiden", "Clip anklicken, im Player zur Stelle springen und „Am Abspielkopf teilen“. Ränder der Clips ziehen = kürzen, "
-                     "Clip ziehen = Reihenfolge ändern. Im Reiter „Clip“ stellst du Tempo, Lautstärke und Übergänge ein."),
+                     "Clip ziehen = Reihenfolge ändern. Im Reiter „Clip“ stellst du Tempo, Lautstärke und Übergänge ein und kannst Stille entfernen oder an Szenenwechseln teilen. Strg+D dupliziert den gewählten Block."),
     ("3. Format", "Im Reiter „Format“ das Ziel wählen (YouTube, Shorts, TikTok, Reels, Instagram) und die Anpassung "
-                  "(Einpassen, Füllen, unscharfer Hintergrund)."),
+                  "(Einpassen, Füllen, unscharfer Hintergrund). Dort legst du auch ein Logo als Wasserzeichen in eine Ecke."),
     ("4. Aussehen", "Reiter „Bild“ (Licht, Kontrast, Farben, Farbräder, Kurven, LUT), „Effekte“ (Glitch, VHS, Neon … – als Blöcke auf der Spur „FX Effekte“) und „Bewegung“ (Zoom, Schwenk, Drehen)."),
     ("5. Text und Untertitel", "Reiter „Text“ (mit Animationen) und „Untertitel“ (von Hand, per SRT-Datei oder automatisch aus Sprache)."),
     ("6. Ton", "„Ton vom Clip trennen“ legt den Ton auf eine eigene Spur. Musik hinzufügen, Ducking und Lautheit im Reiter „Ton“."),

@@ -334,4 +334,9 @@ pts = t.overlay_key_points(0, rk)
 assert len(pts) == 3 and abs(pts[0].x() - rk.left()) < 1e-6 and abs(pts[2].x() - rk.right()) < 1e-6 \
     and abs(pts[1].x() - (rk.left() + rk.width() / 2)) < 1e-6
 print("OK  Bild-in-Bild: Doppelklick fügt Keyframe ein, Rauten")
+p.markers = [{"t": 3.21, "name": ""}]
+assert 3.21 in t._snap_points(-1), "Marker sind Einrastpunkte"
+assert abs(t._snap(3.23, t._snap_points(-1)) - 3.21) < 1e-9, "Marker zieht an"
+p.markers = []
+print("OK  Marker: Einrasten")
 print("Timeline-Mauslogik OK")

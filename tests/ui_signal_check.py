@@ -855,4 +855,207 @@ for _n in ("_seek_project", "split_clip", "delete_selected", "toggle_play"):
     del win.__dict__[_n]
 no_errors("1.4.8: Tastenkürzel")
 print("OK  1.4.8: Tastenkürzel")
+# 1.4.9: Stille entfernen (Anwenden über das Hauptfenster)
+_n0 = len(win.project.clips)
+win.sel = 0
+_c0 = win.project.clips[0]
+_c0.in_pt, _c0.out_pt = 0.0, min(_c0.duration, 3.0)
+_used = win.apply_silence_cuts([(1.0, 1.5)])
+assert _used == [0, 1] and len(win.project.clips) == _n0 + 1, (_used, len(win.project.clips))
+win.project.clips[0].ramp_id = "x"
+assert win.apply_silence_cuts([(0.2, 0.4)]) == [], "Clip mit Tempokurve wird abgelehnt (Meldung statt Absturz)"
+win.project.clips[0].ramp_id = ""
+no_errors("1.4.9: Stille entfernen")
+print("OK  1.4.9: Stille entfernen")
+# 1.4.9: Szenenerkennung (Anwenden über das Hauptfenster)
+_m0 = len(win.project.clips)
+win.sel = 0
+_d0 = win.project.clips[0]
+_d0.in_pt, _d0.out_pt = 0.0, min(_d0.duration, 3.0)
+_used2 = win.apply_scene_cuts([1.0, 2.0])
+assert _used2 == [0, 1, 2] and len(win.project.clips) == _m0 + 2, (_used2, len(win.project.clips))
+win.project.clips[0].reverse = True
+assert win.apply_scene_cuts([0.3]) == [], "rückwärts laufender Clip wird abgelehnt (Meldung statt Absturz)"
+win.project.clips[0].reverse = False
+no_errors("1.4.9: Szenenerkennung")
+print("OK  1.4.9: Szenenerkennung")
+# 1.4.9: Wasserzeichen
+win.set_watermark("/tmp/logo.png")
+assert win.project.watermark == "/tmp/logo.png"
+win.clear_watermark()
+assert win.project.watermark == ""
+no_errors("1.4.9: Wasserzeichen")
+print("OK  1.4.9: Wasserzeichen")
+# 1.4.9: Duplizieren (Strg+D) – Reihenfolge wie beim Löschen: Effekt, Bild-in-Bild, Audio, sonst Clip
+win.fsel = win.osel = win.asel = -1
+_k0 = len(win.project.clips)
+win.sel = 0
+win.duplicate_selected()
+assert len(win.project.clips) == _k0 + 1 and win.sel == 1, (len(win.project.clips), win.sel)
+win.project.clips.pop(1)
+win._refresh_timeline(select=0)
+_e0 = len(win.project.effects)
+win.project.effects.append({"id": "glitch", "intensity": 60, "start": 0.5, "end": 1.0})
+win.fsel = len(win.project.effects) - 1
+win.duplicate_selected()
+assert len(win.project.effects) == _e0 + 2 and win.fsel == _e0 + 1, (len(win.project.effects), win.fsel)
+del win.project.effects[_e0:]
+win.fsel = -1
+win._refresh_timeline(select=0)
+win.sel = -1
+win.duplicate_selected()                      # nichts gewählt: Meldung statt Absturz
+win.sel = 0
+no_errors("1.4.9: Duplizieren")
+print("OK  1.4.9: Duplizieren")
+# 1.5.0: Marker
+win.project.markers = []
+win.timeline.set_playhead(1.5)
+win.add_marker()
+assert [m["t"] for m in win.project.markers] == [1.5]
+win.timeline.set_playhead(1.52)
+win.add_marker()
+assert win.project.markers == [], "M am selben Punkt entfernt den Marker"
+win.timeline.set_playhead(0.5)
+win.add_marker()
+win.timeline.set_playhead(2.0)
+win.add_marker()
+_calls = []
+win._seek_project = lambda t: _calls.append(round(t, 3))
+win.timeline.set_playhead(0.0)
+assert win.edit_key("next_marker") and _calls[-1] == 0.5
+win.timeline.set_playhead(0.5)
+win.edit_key("next_marker")
+assert _calls[-1] == 2.0
+win.timeline.set_playhead(2.0)
+n_calls = len(_calls)
+win.edit_key("next_marker")
+assert len(_calls) == n_calls, "kein weiterer Marker: nicht springen"
+win.edit_key("prev_marker")
+assert _calls[-1] == 0.5
+del win.__dict__["_seek_project"]
+win.clear_markers()
+assert win.project.markers == []
+no_errors("1.5.0: Marker")
+print("OK  1.5.0: Marker")
+# 1.5.0: GIF-Export (nur der erste Schritt: Zwischenvideo klein und kurz rechnen)
+_jobs = []
+win._run_job = lambda cmd, total, title, on_done, measure="": _jobs.append((cmd, total, title, on_done))
+assert win.run_gif_export("/tmp/x.gif", 320, 10) is True and len(_jobs) == 1
+_cmd, _total, _title, _done = _jobs[0]
+assert "vorbereitet" in _title and _cmd[-1].endswith("mid.mp4") and "-t" in _cmd, (_title, _cmd[-3:])
+assert 0.1 < _total <= 30.0 + 1e-6
+del win.__dict__["_run_job"]
+no_errors("1.5.0: GIF-Export")
+print("OK  1.5.0: GIF-Export")
+# 1.5.0: Untertitel-Datei beim Export
+import app.ui.main_window as _mw
+_real_box, _real_find = _mw.QMessageBox, _mw.subs.find_whisper
+
+
+class _FakeBox:
+    asked = []
+    answer = "yes"
+
+    class StandardButton:
+        Yes = "yes"
+        No = "no"
+
+    @classmethod
+    def question(cls, *a, **k):
+        cls.asked.append(a[1] if len(a) > 1 else "")
+        return cls.answer
+
+    information = warning = critical = question
+
+
+_mw.QMessageBox = _FakeBox
+try:
+    from app.core.project import SubtitleCue as _Cue
+    _saved_subs = win.project.subtitles
+    win.project.sub_srt = False
+    assert win._subs_before_export(lambda: None) is True and not _FakeBox.asked, "ohne Häkchen keine Frage"
+    win.project.sub_srt = True
+    win.project.subtitles = [_Cue(0.0, 1.0, "da")]
+    assert win._subs_before_export(lambda: None) is True and not _FakeBox.asked, "mit Untertiteln keine Frage"
+    win.project.subtitles = []
+    _mw.subs.find_whisper = lambda: None
+    assert win._subs_before_export(lambda: None) is True and len(_FakeBox.asked) == 1, "ohne Whisper nur ein Hinweis"
+    _mw.subs.find_whisper = lambda: ("x", "y")
+    _FakeBox.answer = "no"
+    assert win._subs_before_export(lambda: None) is True and win._asr_then is None, "Nein: Export läuft ohne Datei"
+    _FakeBox.answer = "yes"
+    _started = []
+    win.auto_subtitles = lambda: _started.append(1)
+    assert win._subs_before_export(lambda: None) is True and win._asr_then is None, "Erkennung nicht gestartet: nichts merken"
+    win.auto_subtitles = lambda: (setattr(win, "_asr_worker", object()), _started.append(2))
+    ran = []
+    assert win._subs_before_export(lambda: ran.append("export")) is False and win._asr_then is not None
+    win.btn_asr = Stub()
+    win._on_asr_done([_Cue(0.0, 1.0, "erkannt")], "")
+    assert ran == ["export"] and win.project.subtitles and win._asr_then is None and win._asr_worker is None, "Export startet nach der Erkennung"
+    win._asr_worker = object()
+    win._asr_then = lambda: ran.append("falsch")
+    win._on_asr_done(None, "Fehler")
+    assert ran == ["export"], "bei Fehler startet der Export nicht"
+    del win.__dict__["auto_subtitles"]
+    # SRT-Datei schreiben
+    import tempfile as _tf
+    _vid = _os.path.join(_tf.mkdtemp(), "Film.mp4")
+    win.project.sub_srt = False
+    assert win._write_export_srt(_vid) == "" and not _os.path.exists(_vid[:-4] + ".srt")
+    win.project.sub_srt = True
+    assert "Film.srt" in win._write_export_srt(_vid) and _os.path.exists(_vid[:-4] + ".srt")
+    win.project.subtitles = []
+    assert "keine .srt" in win._write_export_srt(_vid)
+    win.project.subtitles = _saved_subs
+    win.project.sub_srt = False
+    win.chk_sub_burn.setChecked(False)
+    win._on_sub_export_changed()
+    assert win.project.sub_burn is False
+    win.chk_sub_burn.setChecked(True)
+    win._on_sub_export_changed()
+    assert win.project.sub_burn is True
+finally:
+    _mw.QMessageBox, _mw.subs.find_whisper = _real_box, _real_find
+no_errors("1.5.0: Untertitel-Datei")
+print("OK  1.5.0: Untertitel-Datei")
+# 1.5.0: Drehung für Bild-in-Bild
+win.project.overlays = [OverlayClip(_vid, 5.0, start=2.0, x_pct=70.0, y_pct=30.0, size_pct=30.0)]
+win.osel = 0
+win._load_overlay_fields()
+_r = win.project.overlays[0]
+win.ov_rot.setValue(30.0)
+win._on_overlay_field()
+assert _r.rot == 30.0, _r.rot
+win.ov_kf_preset.setCurrentIndex(win.ov_kf_preset.findData("wobble"))
+win._apply_ovk_preset()
+assert _ok.active(_r) and all("rot" in k for k in _r.keys) and min(k["rot"] for k in _r.keys) == 20.0, _r.keys
+win.ov_kf_pick.setCurrentIndex(1)
+win.ov_kf_rot.setValue(-45.0)
+win._on_ovk_field()
+assert any(abs(k["rot"] + 45.0) < 1e-6 for k in _r.keys), _r.keys
+win.clear_overlay_keys()
+win.project.overlays = []
+win.osel = -1
+no_errors("1.5.0: Drehung Bild-in-Bild")
+print("OK  1.5.0: Drehung Bild-in-Bild")
+# 1.5.0: Standbild als PNG (erster Schritt: Zwischenvideo kurz rechnen)
+_jobs = []
+win._run_job = lambda cmd, total, title, on_done, measure="": _jobs.append((cmd, total, title, on_done))
+assert win.run_still(1.0, "/tmp/still_test.png") is True and len(_jobs) == 1
+assert "berechnet" in _jobs[0][2] and "-t" in _jobs[0][0] and "-ss" in _jobs[0][0]
+del win.__dict__["_run_job"]
+no_errors("1.5.0: Standbild")
+print("OK  1.5.0: Standbild")
+# 1.5.0: Beat-Sync (Anwenden; das Fenster selbst prüft ui_smoke)
+win.asel = -1
+assert win.detect_beats() is False, "ohne Audioblock nur ein Hinweis"
+win.project.markers = []
+_n_c = len(win.project.clips)
+assert win.apply_beats([0.5 * k for k in range(1, 30)], True, True) is True
+assert len(win.project.markers) == 29 and len(win.project.clips) == _n_c
+win.project.markers = []
+assert win.apply_beats([1.0], False, True) is False, "zu wenige Beats: Meldung, nichts geändert"
+no_errors("1.5.0: Beat-Sync")
+print("OK  1.5.0: Beat-Sync")
 print("Signal-Prüfung OK")

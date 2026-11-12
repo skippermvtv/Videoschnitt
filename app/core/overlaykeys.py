@@ -7,7 +7,7 @@ from __future__ import annotations
 
 MAX_KEYS = 12
 # Wertebereiche; x und y dürfen etwas außerhalb liegen (Block fährt aus dem Bild)
-LIMITS = {"x": (-50.0, 150.0), "y": (-50.0, 150.0), "size": (5.0, 100.0), "opacity": (0.0, 100.0)}
+LIMITS = {"x": (-50.0, 150.0), "y": (-50.0, 150.0), "size": (5.0, 100.0), "opacity": (0.0, 100.0), "rot": (-720.0, 720.0)}
 FIELDS = tuple(LIMITS)
 MIN_GAP = 0.005          # kleinster Zeitabstand zweier Punkte
 
@@ -22,12 +22,13 @@ def _num(v, default: float) -> float:
 
 def base_values(o) -> dict:
     """Die festen Werte eines Blocks – daraus entstehen fehlende Angaben in einem Keyframe."""
-    return {"x": float(o.x_pct), "y": float(o.y_pct), "size": float(o.size_pct), "opacity": float(o.opacity)}
+    return {"x": float(o.x_pct), "y": float(o.y_pct), "size": float(o.size_pct), "opacity": float(o.opacity),
+            "rot": float(getattr(o, "rot", 0.0))}
 
 
 def clean(keys, o=None) -> list[dict]:
     """Bereinigt eine Keyframe-Liste: nur Wörterbücher, Werte im Bereich, sortiert, ohne doppelte Zeiten, höchstens MAX_KEYS."""
-    base = base_values(o) if o is not None else {"x": 75.0, "y": 25.0, "size": 35.0, "opacity": 100.0}
+    base = base_values(o) if o is not None else {"x": 75.0, "y": 25.0, "size": 35.0, "opacity": 100.0, "rot": 0.0}
     out: list[dict] = []
     for k in keys or []:
         if not isinstance(k, dict):
@@ -122,6 +123,8 @@ PRESETS = {
     "zoom_up": "Hochzoomen",
     "fade_away": "Ausblenden",
     "swing": "Hin und her",
+    "spin_in": "Reinwirbeln",
+    "wobble": "Wackeln",
 }
 
 
@@ -139,6 +142,11 @@ def preset_keys(name: str, o) -> list[dict]:
         keys = [full(0.0), full(0.7), full(1.0, opacity=0.0)]
     elif name == "swing":
         keys = [full(0.0), full(0.5, x=100.0 - b["x"]), full(1.0)]
+    elif name == "spin_in":
+        keys = [full(0.0, size=max(5.0, b["size"] * 0.2), opacity=0.0, rot=b["rot"] - 360.0), full(0.4), full(1.0)]
+    elif name == "wobble":
+        r = b["rot"]
+        keys = [full(0.0), full(0.2, rot=r - 10.0), full(0.4, rot=r + 10.0), full(0.6, rot=r - 6.0), full(0.8, rot=r + 6.0), full(1.0)]
     else:
         return []
     return clean(keys, o)

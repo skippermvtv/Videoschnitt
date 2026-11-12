@@ -575,6 +575,9 @@ def main() -> int:
         assert _ok47.active(o47) and win.ov_kf_pick.count() == 3 and win.ov_kf_del.isEnabled(), win.ov_kf_pick.count()
         assert not win.ov_x.isEnabled() and not win.ov_opacity.isEnabled(), "feste Werte gesperrt, solange Keyframes laufen"
         win.ov_kf_pick.setCurrentIndex(1)
+        win.ov_kf_rot.setValue(30.0)
+        assert any(abs(k["rot"] - 30.0) < 1e-6 for k in o47.keys), o47.keys
+        assert not win.ov_rot.isEnabled(), "feste Drehung gesperrt, solange Keyframes laufen"
         win.ov_kf_size.setValue(55.0)
         assert any(abs(k["size"] - 55.0) < 1e-6 for k in o47.keys), o47.keys
         win.ov_kf_t.setValue(40.0)
@@ -651,6 +654,162 @@ def main() -> int:
         finally:
             for n_ in ("_seek_project", "split_clip", "delete_selected", "toggle_play"):
                 win.__dict__.pop(n_, None)
+    with section("Stille entfernen (Fenster, Analyse, Anwenden)"):
+        from app.core.project import Clip as _Clip49, probe as _probe49
+        from app.ui.silencedialog import SilenceDialog as _SD49
+        talk49 = os.path.join(tempfile.mkdtemp(prefix="fate_sil_"), "talk.mp4")
+        expr49 = "0.5*sin(2*PI*440*t)*(lt(t,1)+between(t,2,3)+gte(t,3.7))"
+        subprocess.run([find_binary("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x2040a0:s=320x180:r=25:d=4.3",
+                        "-f", "lavfi", "-i", f"aevalsrc='{expr49}':s=48000:d=4.3", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-shortest", talk49], check=True)
+        i49 = _probe49(talk49)
+        n49 = len(win.project.clips)
+        win.project.clips.append(_Clip49(talk49, i49.duration, has_audio=i49.has_audio, width=i49.width, height=i49.height))
+        win._refresh_timeline(select=n49)
+        assert win.btn_silence.isEnabled()
+        dlg49 = _SD49(win.project.clips[n49], win)
+        assert not dlg49.btn_apply.isEnabled() and "Noch nicht" in dlg49.info.text()
+        assert dlg49.analyze() is True
+        assert len(dlg49.cuts) == 2 and dlg49.btn_apply.isEnabled() and "2 Pausen" in dlg49.info.text(), (dlg49.cuts, dlg49.info.text())
+        dlg49.spin_pad.setValue(0.4)                       # Rand größer: der kurze Schnitt entfällt, ohne neue Analyse
+        assert len(dlg49.cuts) == 1 and dlg49.silences is not None
+        dlg49.spin_db.setValue(-30.0)                      # neue Schwelle: Analyse ungültig
+        assert dlg49.silences is None and not dlg49.btn_apply.isEnabled() and "neu analysieren" in dlg49.info.text()
+        dlg49.spin_db.setValue(-35.0)
+        dlg49.spin_pad.setValue(0.12)
+        assert dlg49.analyze() and len(dlg49.cuts) == 2
+        used49 = win.apply_silence_cuts(dlg49.cuts)
+        assert used49 == [n49, n49 + 1, n49 + 2] and len(win.project.clips) == n49 + 3, used49
+        for _ in range(3):
+            win.project.clips.pop()
+        win._refresh_timeline(select=0)
+    with section("Szenenerkennung (Fenster, Analyse, Anwenden)"):
+        from app.core.project import Clip as _Clip49b, probe as _probe49b
+        from app.ui.scenedialog import SceneDialog as _SC49
+        d49 = tempfile.mkdtemp(prefix="fate_scn_")
+        four49 = os.path.join(d49, "four.mp4")
+        ins49 = []
+        for col in ("black", "white", "0x303030", "0xd0d0d0"):
+            ins49 += ["-f", "lavfi", "-i", f"color=c={col}:s=320x180:r=25:d=1.5"]
+        subprocess.run([find_binary("ffmpeg"), "-v", "error", "-y", *ins49, "-filter_complex",
+                        "[0:v][1:v][2:v][3:v]concat=n=4:v=1:a=0[v]", "-map", "[v]", "-c:v", "libx264", "-pix_fmt", "yuv420p", four49],
+                       check=True)
+        i49b = _probe49b(four49)
+        n49b = len(win.project.clips)
+        win.project.clips.append(_Clip49b(four49, i49b.duration, has_audio=i49b.has_audio, width=i49b.width, height=i49b.height))
+        win._refresh_timeline(select=n49b)
+        assert win.btn_scenes.isEnabled()
+        dlg49b = _SC49(win.project.clips[n49b], win)
+        assert not dlg49b.btn_apply.isEnabled() and "Noch nicht" in dlg49b.info.text()
+        assert dlg49b.analyze() is True
+        assert len(dlg49b.cuts) == 3 and dlg49b.btn_apply.isEnabled() and "3 Schnitte" in dlg49b.info.text(), (dlg49b.cuts, dlg49b.info.text())
+        dlg49b.spin_len.setValue(2.0)                      # Szenen müssen länger sein: es bleiben weniger Schnitte, ohne neue Analyse
+        assert len(dlg49b.cuts) < 3 and dlg49b.times is not None
+        dlg49b.spin_thr.setValue(0.5)
+        assert dlg49b.times is None and not dlg49b.btn_apply.isEnabled() and "neu analysieren" in dlg49b.info.text()
+        dlg49b.spin_thr.setValue(0.3)
+        dlg49b.spin_len.setValue(0.5)
+        assert dlg49b.analyze() and len(dlg49b.cuts) == 3
+        used49b = win.apply_scene_cuts(dlg49b.cuts)
+        assert used49b == [n49b + k for k in range(4)] and len(win.project.clips) == n49b + 4, used49b
+        for _ in range(4):
+            win.project.clips.pop()
+        win._refresh_timeline(select=0)
+    with section("Wasserzeichen (Reiter Format)"):
+        from PIL import Image as _PIL49
+        lg49 = os.path.join(tempfile.mkdtemp(prefix="fate_wm_"), "logo.png")
+        _PIL49.new("RGBA", (200, 100), (255, 255, 255, 255)).save(lg49)
+        win.clear_watermark()
+        assert win.project.watermark == "" and win.wm_name.text() == "kein Logo"
+        assert not win.wm_corner.isEnabled() and not win.wm_size.isEnabled() and not win.wm_opacity.isEnabled() and not win.wm_clear.isEnabled()
+        win.set_watermark(lg49)
+        assert win.project.watermark == lg49 and win.wm_name.text() == "logo.png"
+        assert win.wm_corner.isEnabled() and win.wm_size.isEnabled() and win.wm_opacity.isEnabled() and win.wm_clear.isEnabled()
+        win.wm_corner.setCurrentIndex(win.wm_corner.findData("tl"))
+        win.wm_size.setValue(22.0)
+        win.wm_opacity.setValue(55.0)
+        assert (win.project.wm_corner, win.project.wm_size, win.project.wm_opacity) == ("tl", 22.0, 55.0)
+        st49 = win.project.to_json()
+        win._apply_state(st49)                                       # Laden/Rückgängig zeigt die Werte wieder an
+        assert win.wm_name.text() == "logo.png" and win.wm_corner.currentData() == "tl" and win.wm_size.value() == 22.0
+        assert win.project.watermark == lg49, "Laden darf das Logo nicht verändern"
+        win.clear_watermark()
+        assert win.project.watermark == "" and not win.wm_corner.isEnabled()
+    with section("Duplizieren (Strg+D, Knopf)"):
+        from PySide6.QtGui import QKeySequence as _QKS49
+        assert win.act_dup.shortcut() == _QKS49("Ctrl+D") and win.btn_dup.toolTip().startswith("Auswahl duplizieren")
+        n49d = len(win.project.clips)
+        win._select_clip(0)
+        win.act_dup.trigger()
+        assert len(win.project.clips) == n49d + 1 and win.sel == 1
+        win.project.clips.pop(1)
+        win._refresh_timeline(select=0)
+        e49d = len(win.project.effects)
+        win.project.effects.append({"id": "glitch", "intensity": 60, "start": 0.2, "end": 0.8})
+        win._select_fx(len(win.project.effects) - 1)
+        win.btn_dup.click()
+        assert len(win.project.effects) == e49d + 2 and win.fsel == e49d + 1
+        del win.project.effects[e49d:]
+        win.fsel = -1
+        win._refresh_timeline(select=0)
+    with section("Marker (Zeichnen, Setzen, Springen)"):
+        win.project.markers = []
+        win.timeline.set_playhead(0.5)
+        win.add_marker()
+        win.timeline.set_playhead(1.0)
+        win.add_marker()
+        win.project.markers[0]["name"] = "Drop"
+        win.timeline.resize(900, win.timeline.height())
+        pm49m = win.timeline.grab()                       # Zeichnen mit Dreieck, Linie und Name darf nicht abstürzen
+        assert not pm49m.isNull() and len(win.project.markers) == 2
+        assert win.act_dup is not None
+        win.clear_markers()
+        assert win.project.markers == []
+    with section("Untertitel beim Export (Häkchen, Laden)"):
+        win.project.sub_burn, win.project.sub_srt = False, True
+        win._show_sub_export()
+        assert not win.chk_sub_burn.isChecked() and win.chk_sub_srt.isChecked()
+        win.chk_sub_burn.setChecked(True)
+        win.chk_sub_srt.setChecked(False)
+        assert win.project.sub_burn is True and win.project.sub_srt is False
+        win._apply_state(win.project.to_json())
+        assert win.chk_sub_burn.isChecked() and not win.chk_sub_srt.isChecked()
+        assert win.act_export_gif is not None
+    with section("Beat-Sync (Fenster, Analyse, Marker, Schnitt auf den Beat)"):
+        import wave as _wave49
+        import numpy as _np49
+        from app.core.project import AudioClip as _AC49
+        from app.ui.beatdialog import BeatDialog as _BD49
+        sr49 = 22050
+        x49 = _np49.zeros(sr49 * 12)
+        tt49 = _np49.arange(int(0.12 * sr49)) / sr49
+        kick49 = _np49.sin(2 * _np49.pi * (60 + 80 * _np49.exp(-tt49 * 30)) * tt49) * _np49.exp(-tt49 * 25) * 0.9
+        for k49 in range(22):
+            i49 = int((0.3 + k49 * 0.5) * sr49)
+            x49[i49:i49 + len(kick49)] += kick49[:len(x49) - i49]
+        wav49 = os.path.join(tempfile.mkdtemp(prefix="fate_beat_"), "beat.wav")
+        with _wave49.open(wav49, "wb") as w49:
+            w49.setnchannels(1)
+            w49.setsampwidth(2)
+            w49.setframerate(sr49)
+            w49.writeframes((x49 * 30000).astype(_np49.int16).tobytes())
+        ac49 = _AC49(wav49, 12.0, start=1.0)
+        dlg49 = _BD49(ac49, win)
+        assert not dlg49.btn_apply.isEnabled() and "Noch nicht" in dlg49.info.text()
+        assert dlg49.analyze() is True
+        assert dlg49.btn_apply.isEnabled() and "120" in dlg49.info.text() and len(dlg49.times) >= 18, (dlg49.info.text(), len(dlg49.times))
+        n_all49 = len(dlg49.times)
+        dlg49.cmb_step.setCurrentIndex(dlg49.cmb_step.findData(4))
+        assert 0 < len(dlg49.times) <= n_all49 // 4 + 1, len(dlg49.times)
+        dlg49.chk_markers.setChecked(False)
+        dlg49.chk_cut.setChecked(False)
+        assert not dlg49.btn_apply.isEnabled(), "ohne Auswahl nichts anzuwenden"
+        dlg49.chk_markers.setChecked(True)
+        assert dlg49.btn_apply.isEnabled()
+        win.project.markers = []
+        assert win.apply_beats(dlg49.times, True, False) is True and len(win.project.markers) == len(dlg49.times)
+        win.clear_markers()
+        assert win.btn_beats is not None
     with section("Ton verbessern"):
         # Ton verbessern
         win._select_clip(0)
