@@ -42,8 +42,8 @@ subprocess.run([ff, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640
 info = probe(str(src))
 p = Project(format_id="youtube_16_9", export_id="youtube_1080p", layout="fill")
 p.clips = [Clip(str(src), info.duration, has_audio=True, width=info.width, height=info.height)]
-out_dir = tmp / "out"
-out_dir.mkdir()
+out_dir = tmp / "out_multi"
+out_dir.mkdir(exist_ok=True)
 
 # ---------------------------------------------------------------- Aufträge
 check(raises(mx.plan, Project(), ["shorts"], out_dir, "x"), "ohne Clips")

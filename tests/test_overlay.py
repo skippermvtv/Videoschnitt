@@ -78,7 +78,7 @@ def main() -> int:
     i = probe(str(img)); assert i.is_image and i.duration == 5.0 and not i.has_audio
     p = Project(format_id="youtube_16_9", export_id="youtube_1080p")
     c = clip_of(img); c.out_pt = 2.0
-    p.clips = [c, clip_of(tmp / "blue.mp4") if (tmp / "blue.mp4").exists() else clip_of(solid_video("blue.mp4", "0x1020e0", 4, audio=True))]
+    p.clips = [c, clip_of(solid_video("blue.mp4", "0x1020e0", 4, audio=True))]
     assert abs(p.duration - 6.0) < 0.01
     out, total = render(p, "still")
     info = probe(str(out)); assert abs(info.duration - 6.0) < 0.3 and info.has_audio
@@ -121,7 +121,7 @@ def main() -> int:
     print("OK  Overlay-Video wird gekürzt, spätes Overlay übersprungen")
 
     # 6) Zusammen mit Musik und Overlays: Eingänge stimmen (Ton bleibt hörbar)
-    p.audio_clips.append(AudioClip(str(tmp / "m.wav") if (tmp / "m.wav").exists() else _music(), 2.0, start=0.0, track=2, loop=True))
+    p.audio_clips.append(AudioClip(_music(), 2.0, start=0.0, track=2, loop=True))
     out, _ = render(p, "ov5")
     r = subprocess.run([ff, "-v", "error", "-i", str(out), "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-"], capture_output=True, check=True)
     x = np.frombuffer(r.stdout, dtype=np.float32)[16000:48000]

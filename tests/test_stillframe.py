@@ -36,7 +36,7 @@ def clip_of(path):
     return Clip(str(path), i.duration, has_audio=True, width=i.width, height=i.height)
 
 
-red, blue = solid("red.mp4", "red"), solid("blue.mp4", "blue")
+red, blue = solid("still_red.mp4", "red"), solid("still_blue.mp4", "blue")
 p = Project(format_id="youtube_16_9", export_id="youtube_1080p", layout="fill")
 p.clips = [clip_of(red), clip_of(blue)]
 before = p.to_json()
