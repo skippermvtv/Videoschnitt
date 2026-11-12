@@ -498,7 +498,10 @@ class Project:
 
     @classmethod
     def load(cls, path: str) -> "Project":
-        return cls.from_json(Path(path).read_text(encoding="utf-8"))
+        p = cls.from_json(Path(path).read_text(encoding="utf-8"))
+        from . import collect                      # gesammelte Projekte haben relative Pfade (Medien/…)
+        collect.absolutize(p, Path(path).resolve().parent)
+        return p
 
     # --- fehlende Dateien wiederfinden ------------------------------------------------
     def missing_paths(self) -> list[str]:

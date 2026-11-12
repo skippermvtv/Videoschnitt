@@ -14,7 +14,14 @@ class Any:
     def __call__(s, *a, **k): return Any()
 
 class QRectF:
-    def __init__(s, x=0, y=0, w=0, h=0): s.x, s.y, s.w, s.h = x, y, w, h
+    def __init__(s, x=0, y=0, w=0, h=0):
+        if hasattr(x, "x") and hasattr(y, "x"):                # QRectF(QPointF, QPointF)
+            x, y, w, h = x.x(), x.y(), y.x() - x.x(), y.y() - x.y()
+        s.x, s.y, s.w, s.h = x, y, w, h
+    def normalized(s):
+        return QRectF(min(s.x, s.x + s.w), min(s.y, s.y + s.h), abs(s.w), abs(s.h))
+    def intersects(s, o):
+        return s.x < o.x + o.w and o.x < s.x + s.w and s.y < o.y + o.h and o.y < s.y + s.h
     def left(s): return s.x
     def right(s): return s.x + s.w
     def top(s): return s.y
@@ -34,12 +41,14 @@ class Pt:
     def y(s): return s._y
 
 class Ev:
-    def __init__(s, x, y): s._p = Pt(x, y)
+    def __init__(s, x, y, mods=0): s._p, s._m = Pt(x, y), mods
     def position(s): return s._p
+    def modifiers(s): return s._m
     def button(s): return "L"
 
 class QtStub(Any):
     MouseButton = types.SimpleNamespace(LeftButton="L")
+    KeyboardModifier = types.SimpleNamespace(ControlModifier=1, ShiftModifier=2)
 
 class QWidget:
     def __init__(s, parent=None): s._w, s._h = 1000, 260
@@ -76,6 +85,7 @@ def init(self, parent=None):
     self.fx_selected, self.fx_edited, self.effect_dropped = Sig(), Sig(), Sig()
     self.media_dropped, self.lane_mute_toggled = Sig(), Sig()
     self.title_dropped, self.transition_dropped = Sig(), Sig()
+    self.multi_changed, self.multi_edited = Sig(), Sig()
 tl.Timeline.__init__ = init
 
 from app.core.project import AudioClip, Clip, OverlayClip, Project
@@ -339,4 +349,101 @@ assert 3.21 in t._snap_points(-1), "Marker sind Einrastpunkte"
 assert abs(t._snap(3.23, t._snap_points(-1)) - 3.21) < 1e-9, "Marker zieht an"
 p.markers = []
 print("OK  Marker: Einrasten")
+# ---- Mehrfachauswahl (1.5.1)
+CTRL = 1
+p2 = Project()
+p2.clips = [Clip("a.mp4", 10.0), Clip("b.mp4", 10.0)]                               # 20 s
+p2.audio_clips = [AudioClip("m.wav", 8.0, start=2.0, track=2), AudioClip("n.wav", 4.0, start=12.0, track=3)]
+p2.overlays = [OverlayClip("o.mp4", 5.0, start=3.0), OverlayClip("q.mp4", 4.0, start=10.0)]
+p2.effects = [{"id": "glitch", "intensity": 50, "start": 5.0, "end": 8.0}]
+t2 = tl.Timeline()
+t2.set_project(p2, 0, -1)
+px2 = t2._avail() / t2._total()
+
+
+def rects2():
+    t2._vrects, t2._arects, t2._orects, t2._frects = [], [], [], []
+    for k, c in enumerate(p2.clips):
+        t2._vrects.append(QRectF(t2._x(p2.clip_start(k)) + 1, t2._lane_y(0), c.length / t2._span() * t2._avail() - 2, tl.V_H))
+    for i, x in enumerate(p2.audio_clips):
+        t2._arects.append((i, QRectF(t2._x(x.start), t2._lane_y(x.track), x.length / t2._span() * t2._avail(), tl.A_H)))
+    for i, o in enumerate(p2.overlays):
+        t2._orects.append((i, QRectF(t2._x(o.start), t2._lane_y(4), o.length / t2._span() * t2._avail(), 20)))
+    for i in range(len(p2.effects)):
+        s0, e0 = p2.fx_span(i)
+        t2._frects.append((i, QRectF(t2._x(s0), t2._lane_y(tl.FX_LANE) + 3, (e0 - s0) / t2._span() * t2._avail(), 18)))
+
+
+def center(r):
+    return r.x + r.w / 2, r.y + r.h / 2
+
+
+rects2()
+# 1) Clip anklicken, dann mit Strg Audio und Bild-in-Bild und Effekt dazu
+t2.mousePressEvent(Ev(*center(t2._vrects[0]))); t2.mouseReleaseEvent(Ev(0, 0))
+assert t2.multi_items() == []
+t2.mousePressEvent(Ev(*center(t2._arects[0][1]), CTRL)); t2.mouseReleaseEvent(Ev(0, 0))
+assert t2.multi_items() == [("v", 0), ("a", 0)], t2.multi_items()
+t2.mousePressEvent(Ev(*center(t2._orects[0][1]), CTRL)); t2.mouseReleaseEvent(Ev(0, 0))
+t2.mousePressEvent(Ev(*center(t2._frects[0][1]), CTRL)); t2.mouseReleaseEvent(Ev(0, 0))
+assert t2.multi_items() == [("v", 0), ("a", 0), ("o", 0), ("f", 0)], t2.multi_items()
+assert t2.multi_changed.calls, "Signal bei Änderung"
+# 2) mit Strg wieder abwählen
+t2.mousePressEvent(Ev(*center(t2._orects[0][1]), CTRL)); t2.mouseReleaseEvent(Ev(0, 0))
+assert t2.multi_items() == [("v", 0), ("a", 0), ("f", 0)], t2.multi_items()
+t2.mousePressEvent(Ev(*center(t2._orects[0][1]), CTRL)); t2.mouseReleaseEvent(Ev(0, 0))
+# 3) Gruppe ziehen: Audio, Bild-in-Bild und Effekt wandern gemeinsam, der Clip bleibt
+before = (p2.audio_clips[0].start, p2.overlays[0].start, p2.fx_span(0))
+x0, y0 = center(t2._orects[0][1])
+t2.mousePressEvent(Ev(x0, y0)); assert t2._drag and t2._drag["kind"] == "multi", t2._drag
+t2.mouseMoveEvent(Ev(x0 + 2.0 * px2, y0)); t2.mouseReleaseEvent(Ev(0, 0))
+assert abs(p2.audio_clips[0].start - (before[0] + 2.0)) < 0.01 and abs(p2.overlays[0].start - (before[1] + 2.0)) < 0.01, (p2.audio_clips[0].start, p2.overlays[0].start)
+assert abs(p2.fx_span(0)[0] - (before[2][0] + 2.0)) < 0.01 and abs(p2.fx_span(0)[1] - (before[2][1] + 2.0)) < 0.01, p2.fx_span(0)
+assert p2.clips[0].in_pt == 0.0 and t2.multi_edited.calls, "Clip bleibt, Signal gesendet"
+assert len(t2.multi_items()) == 4, "Auswahl bleibt nach dem Ziehen"
+# 4) nach links über 0 hinaus: keiner vor 0, Abstände bleiben
+rects2()
+x0, y0 = center(t2._orects[0][1])
+t2.mousePressEvent(Ev(x0, y0)); t2.mouseMoveEvent(Ev(x0 - 60 * px2, y0)); t2.mouseReleaseEvent(Ev(0, 0))
+assert min(p2.audio_clips[0].start, p2.overlays[0].start, p2.fx_span(0)[0]) >= 0.0
+assert abs((p2.overlays[0].start - p2.audio_clips[0].start) - (before[1] - before[0])) < 0.01, "Abstand bleibt beim Anstoßen"
+# 5) normaler Klick auf einen nicht gewählten Block hebt die Mehrfachauswahl auf
+rects2()
+t2.mousePressEvent(Ev(*center(t2._arects[1][1]))); t2.mouseReleaseEvent(Ev(0, 0))
+assert t2.multi_items() == [] and t2.audio_selected.calls[-1] == (1,), (t2.multi_items(), t2.audio_selected.calls[-1])
+# 6) Aufziehrahmen über Audio 0 und Bild-in-Bild 0
+rects2()
+ra, ro = t2._arects[0][1], t2._orects[0][1]
+t2.mousePressEvent(Ev(t2._x(0.3), min(ra.y, ro.y) - 3)); assert t2._drag["kind"] == "band", t2._drag
+t2.mouseMoveEvent(Ev(max(ra.x + ra.w, ro.x + ro.w) + 5, max(ra.y + ra.h, ro.y + ro.h) + 3)); t2.mouseReleaseEvent(Ev(0, 0))
+got = t2.multi_items()
+assert ("a", 0) in got and ("o", 0) in got and ("a", 1) not in got and ("v", 0) in got, got      # der Rahmen quert die Hauptspur
+# 7) Rahmen mit Strg ergänzt
+t2.mousePressEvent(Ev(t2._x(19.5), t2._lane_y(1) + 3, CTRL))
+fr = t2._frects[0][1]
+t2.mouseMoveEvent(Ev(fr.x - 4, fr.y - 4)); t2.mouseReleaseEvent(Ev(0, 0))
+assert ("f", 0) in t2.multi_items() and ("a", 0) in t2.multi_items(), t2.multi_items()
+# 8) Klick ins Leere hebt auf
+t2.mousePressEvent(Ev(t2._x(19.5), t2._lane_y(1) + 3)); t2.mouseReleaseEvent(Ev(0, 0))
+assert t2.multi_items() == [], t2.multi_items()
+# 9) gesperrte Spur wird beim Rahmen übersprungen
+t2.set_locked([2])
+rects2()
+ra = t2._arects[0][1]
+t2.mousePressEvent(Ev(t2._x(0.3), ra.y - 4)); t2.mouseMoveEvent(Ev(ra.x + ra.w + 4, ra.y + ra.h + 4)); t2.mouseReleaseEvent(Ev(0, 0))
+assert ("a", 0) not in t2.multi_items(), "Audio auf gesperrter Spur nicht wählbar"
+t2.set_locked([])
+# 10) nur ein Block mit Strg: bleibt Einzelauswahl
+t2.clear_multi()
+t2._last = None
+t2._sel = t2._asel = t2._osel = t2._fsel = -1
+t2.mousePressEvent(Ev(*center(t2._orects[0][1]), CTRL)); t2.mouseReleaseEvent(Ev(0, 0))
+assert t2.multi_items() == [], "ein einzelner Block ist keine Mehrfachauswahl"
+# 11) Anzahl ändert sich: Auswahl verfällt
+t2.set_multi([("a", 0), ("o", 0)])
+assert len(t2.multi_items()) == 2
+p2.overlays.append(OverlayClip("z.mp4", 2.0, start=1.0))
+t2.set_project(p2, 0, -1)
+assert t2.multi_items() == [], "neue Blöcke: Nummern passen nicht mehr"
+print("OK  Mehrfachauswahl: Strg-Klick, Gruppe ziehen, Aufziehrahmen, Sperre")
 print("Timeline-Mauslogik OK")

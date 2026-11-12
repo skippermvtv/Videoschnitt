@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from .. import paths
 from ..core import effects as fx
-from ..core import audiomix, beats as beatlib, duplicate, gif as giflib, stillframe, karaoke, markers as markerlib, scenes, silence, keypreview, loudcheck, overlaykeys, subpreview, whatsnew, diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
+from ..core import audiomix, chapters as chapterlib, collect as collectlib, freeze as freezelib, gaps as gapslib, selection as sellib, beats as beatlib, duplicate, gif as giflib, stillframe, karaoke, markers as markerlib, scenes, silence, keypreview, loudcheck, overlaykeys, subpreview, whatsnew, diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
 from ..core.history import History
 from ..core.fontcheck import missing_chars
 from ..core.helptext import help_html
@@ -309,6 +309,8 @@ class MainWindow(QMainWindow):
         self.timeline.audio_edited.connect(self._on_audio_edited)
         self.timeline.fx_selected.connect(self._select_fx)
         self.timeline.fx_edited.connect(self._on_fx_edited)
+        self.timeline.multi_changed.connect(self._on_multi_changed)
+        self.timeline.multi_edited.connect(self._on_multi_edited)
         self.timeline.effect_dropped.connect(self._on_fx_dropped)
         self.timeline.media_dropped.connect(self._on_media_dropped)
         self.timeline.title_dropped.connect(self._on_title_dropped)
@@ -2399,6 +2401,9 @@ class MainWindow(QMainWindow):
         mf.addAction(self.act_export_gif)
         self.act_still = act("Aktuelles Bild als PNG speichern …", self.save_still)
         mf.addAction(self.act_still)
+        mf.addSeparator()
+        self.act_collect = act("Projekt sammeln (alle Dateien in einen Ordner oder ZIP) …", self.collect_project)
+        mf.addAction(self.act_collect)
 
         # Name oben rechts in der Menüleiste (rot, wie das Logo)
         brand = QLabel(APP_NAME)
@@ -2416,6 +2421,17 @@ class MainWindow(QMainWindow):
         self.act_dup = act("Auswahl duplizieren", self.duplicate_selected, "Ctrl+D")
         me.addAction(self.act_dup)
         me.addAction(act("Auswahl löschen", self.delete_selected))
+        self.act_ripple = act("Löschen und Lücke schließen", self.ripple_delete_selected, "Ctrl+Delete")
+        self.act_ripple.setShortcutContext(Qt.ShortcutContext.WidgetShortcut)
+        me.addAction(self.act_ripple)
+        self.act_ripple_tracks = QAction("Beim Lücke-Schließen Bild-in-Bild, Ton und Effekte mitnehmen", self)
+        self.act_ripple_tracks.setCheckable(True)
+        self.act_ripple_tracks.setChecked(True)
+        me.addAction(self.act_ripple_tracks)
+        self.act_close_gaps = act("Alle Lücken auf den Zusatzspuren schließen", self.close_all_gaps)
+        me.addAction(self.act_close_gaps)
+        self.act_freeze = act("Standbild an dieser Stelle einfügen …", self.insert_freeze, "Ctrl+Shift+F")
+        me.addAction(self.act_freeze)
         me.addSeparator()
         mk = me.addMenu("Marker")
         mk.addAction(act("Marker setzen / entfernen (M)", self.add_marker))
@@ -2423,6 +2439,8 @@ class MainWindow(QMainWindow):
         mk.addAction(act("Zum vorherigen Marker (Strg+←)", lambda: self.goto_marker(-1)))
         mk.addAction(act("Marker benennen …", self.rename_marker))
         mk.addAction(act("Alle Marker entfernen", self.clear_markers))
+        mk.addSeparator()
+        mk.addAction(act("YouTube-Kapitel für die Beschreibung …", self.show_chapters))
         me.addSeparator()
         me.addAction(act("Fehlende Dateien suchen …", self.relink_dialog))
 
@@ -2443,6 +2461,7 @@ class MainWindow(QMainWindow):
         self.act_del = act("Auswahl löschen", self.delete_selected, "Delete")
         self.act_del.setShortcutContext(Qt.ShortcutContext.WidgetShortcut)
         self.timeline.addAction(self.act_del)
+        self.timeline.addAction(self.act_ripple)
 
     # ---------------------------------------------------------- Presets & Sync
     def _populate_presets(self) -> None:
@@ -4239,8 +4258,40 @@ class MainWindow(QMainWindow):
         self.asel = -1
         self._refresh_timeline()
 
+    # ------------------------------------------------------------------ Mehrfachauswahl
+    def _on_multi_changed(self) -> None:
+        n = len(self.timeline.multi_items())
+        if n:
+            self.statusBar().showMessage(f"{n} Blöcke gewählt – Entf löscht sie, Strg+D dupliziert sie, Ziehen verschiebt Bild-in-Bild, "
+                                         "Audio und Effekte gemeinsam. Esc hebt die Auswahl auf.")
+
+    def _on_multi_edited(self) -> None:
+        self._refresh_timeline_only()
+
+    def delete_multi(self) -> int:
+        items = self.timeline.multi_items()
+        n = sellib.delete(self.project, items)
+        self.timeline.clear_multi()
+        self.asel = self.osel = self.fsel = -1
+        self._load_audio_fields()
+        self._load_overlay_fields()
+        self._load_fx_fields()
+        self._refresh_timeline(select=min(self.sel, len(self.project.clips) - 1))
+        self.statusBar().showMessage(f"{n} Blöcke gelöscht. Rückgängig mit Strg+Z.")
+        return n
+
+    def duplicate_multi(self) -> int:
+        items = self.timeline.multi_items()
+        new = sellib.duplicate_items(self.project, items)
+        self._refresh_timeline()
+        self.timeline.set_multi(new)
+        self.statusBar().showMessage(f"{len(new)} Blöcke dupliziert – die Kopien liegen direkt hinter den Originalen.")
+        return len(new)
+
     def delete_selected(self) -> None:
-        if self.fsel >= 0:
+        if self.timeline.multi_items():
+            self.delete_multi()
+        elif self.fsel >= 0:
             self.remove_effect_block()
         elif self.osel >= 0:
             self.remove_overlay()
@@ -4248,6 +4299,79 @@ class MainWindow(QMainWindow):
             self.remove_audio()
         else:
             self.delete_clip()
+
+    def ripple_delete_selected(self) -> int:
+        """Strg+Entf: gewählte Clips löschen und alles dahinter (auch Bild-in-Bild, Ton, Effekte) nachrücken lassen.
+        Andere gewählte Blöcke (Bild-in-Bild, Audio, Effekt) werden einfach gelöscht."""
+        items = self.timeline.multi_items()
+        if not items:
+            if self.fsel >= 0:
+                items = [("f", self.fsel)]
+            elif self.osel >= 0:
+                items = [("o", self.osel)]
+            elif self.asel >= 0:
+                items = [("a", self.asel)]
+            elif 0 <= self.sel < len(self.project.clips):
+                items = [("v", self.sel)]
+        if not items:
+            return 0
+        clips = [i for k, i in items if k == "v"]
+        other = [(k, i) for k, i in items if k != "v"]
+        n = sellib.delete(self.project, other) if other else 0
+        r = gapslib.ripple_delete(self.project, clips, self.act_ripple_tracks.isChecked()) if clips else None
+        self.timeline.clear_multi()
+        self.asel = self.osel = self.fsel = -1
+        self._load_audio_fields()
+        self._load_overlay_fields()
+        self._load_fx_fields()
+        self._refresh_timeline(select=max(0, min(self.sel, len(self.project.clips) - 1)))
+        if r:
+            n += r["clips"] + r["removed"]
+            self.statusBar().showMessage(f"{r['clips']} Clip(s) gelöscht, {r['seconds']:.1f} s Lücke geschlossen. Rückgängig mit Strg+Z.")
+        else:
+            self.statusBar().showMessage(f"{n} Block/Blöcke gelöscht. Rückgängig mit Strg+Z.")
+        return n
+
+    def insert_freeze(self, seconds: float | None = None) -> bool:
+        """Hält das Bild unter dem Abspielkopf für einige Sekunden an: der Clip wird geteilt und ein Standbild-Clip eingefügt."""
+        if not self.project.clips:
+            self.statusBar().showMessage("Zuerst ein Video in die Timeline legen.")
+            return False
+        t = max(0.0, self.timeline.playhead)
+        loc = freezelib.locate(self.project, t)
+        if loc is None:
+            self.statusBar().showMessage("Hier liegt schon ein Standbild – bitte den Abspielkopf auf ein Video setzen.")
+            return False
+        idx, local = loc
+        if seconds is None:
+            seconds, ok = QInputDialog.getDouble(self, "Standbild einfügen", "Wie lange soll das Bild stehen bleiben (Sekunden)?",
+                                                 freezelib.DEFAULT_SECONDS, freezelib.MIN_SECONDS, freezelib.MAX_SECONDS, 1)
+            if not ok:
+                return False
+        c = self.project.clips[idx]
+        png = freezelib.new_png_path()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            freezelib.extract(c, local, png)
+        except Exception as exc:  # noqa: BLE001
+            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(self, "Standbild einfügen", f"Das Bild konnte nicht aus dem Video geholt werden:\n{exc}")
+            return False
+        QApplication.restoreOverrideCursor()
+        n = freezelib.insert(self.project, idx, local, png, seconds)
+        self._refresh_timeline(select=n)
+        self.statusBar().showMessage(f"Standbild eingefügt ({freezelib.clamp_seconds(seconds):.1f} s). Rückgängig mit Strg+Z.")
+        return True
+
+    def close_all_gaps(self) -> int:
+        """Menü: leere Stellen zwischen Blöcken auf den Zusatzspuren (Bild-in-Bild, Ton, Effekte) entfernen."""
+        r = gapslib.close_all(self.project)
+        if not r["gaps"]:
+            self.statusBar().showMessage("Keine Lücken auf den Zusatzspuren gefunden.")
+            return 0
+        self._refresh_timeline_only()
+        self.statusBar().showMessage(f"{r['gaps']} Lücke(n) geschlossen, {r['moved']} Block/Blöcke verschoben. Rückgängig mit Strg+Z.")
+        return r["gaps"]
 
     # ------------------------------------------------------------------ Marker
     def add_marker(self) -> None:
@@ -4279,6 +4403,61 @@ class MainWindow(QMainWindow):
             markerlib.rename(self.project, i, name.strip())
             self._refresh_timeline_only()
 
+    def build_chapters_dialog(self) -> QDialog:
+        """Fenster mit der Kapitelliste für die YouTube-Beschreibung (aus benannten Markern), Hinweisen und Kopieren-Knopf."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("YouTube-Kapitel")
+        dlg.resize(520, 460)
+        lay = QVBoxLayout(dlg)
+        intro = QLabel("Benannte Marker werden zu Kapiteln. Marker setzen mit M, benennen über Bearbeiten → Marker → Marker benennen.")
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Name des ersten Kapitels (0:00), falls dort kein Marker liegt:"))
+        ed = QLineEdit("Anfang")
+        row.addWidget(ed)
+        lay.addLayout(row)
+        box = QPlainTextEdit()
+        box.setReadOnly(True)
+        lay.addWidget(box, 1)
+        info = QLabel()
+        info.setWordWrap(True)
+        lay.addWidget(info)
+        btns = QHBoxLayout()
+        b_copy = QPushButton("Liste kopieren")
+        b_close = QPushButton("Schließen")
+        btns.addStretch(1)
+        btns.addWidget(b_copy)
+        btns.addWidget(b_close)
+        lay.addLayout(btns)
+
+        def refresh():
+            r = chapterlib.build(self.project, ed.text())
+            box.setPlainText(r["text"])
+            msg = [f"<span style='color:#d33'>• {x}</span>" for x in r["problems"]] + [f"• {x}" for x in r["notes"]]
+            if r["ok"]:
+                msg.insert(0, "<span style='color:#2a2'>Die Liste erfüllt die YouTube-Regeln.</span>")
+            info.setText("<br>".join(msg))
+            dlg._result = r
+
+        def copy():
+            QApplication.clipboard().setText(box.toPlainText())
+            self.statusBar().showMessage("Kapitelliste kopiert – in die YouTube-Beschreibung einfügen.")
+
+        ed.textChanged.connect(refresh)
+        b_copy.clicked.connect(copy)
+        b_close.clicked.connect(dlg.accept)
+        dlg._edit, dlg._box, dlg._info, dlg._copy, dlg._refresh = ed, box, info, copy, refresh
+        refresh()
+        return dlg
+
+    def show_chapters(self) -> None:
+        if not self.project.clips:
+            self.statusBar().showMessage("Zuerst ein Video in die Timeline legen.")
+            return
+        self._chapters_dialog = self.build_chapters_dialog()
+        self._chapters_dialog.exec()
+
     def clear_markers(self) -> None:
         n = markerlib.clear(self.project)
         self.statusBar().showMessage(f"{n} Marker entfernt. Rückgängig mit Strg+Z." if n else "Es gibt keine Marker.")
@@ -4287,7 +4466,9 @@ class MainWindow(QMainWindow):
     def duplicate_selected(self) -> None:
         """Strg+D: legt eine Kopie des gewählten Blocks direkt dahinter (gleiche Reihenfolge wie beim Löschen)."""
         try:
-            if self.fsel >= 0:
+            if self.timeline.multi_items():
+                self.duplicate_multi()
+            elif self.fsel >= 0:
                 self.fsel, fits = duplicate.effect(self.project, self.fsel)
                 self.asel = self.osel = -1
                 self._load_audio_fields()
@@ -4455,6 +4636,7 @@ class MainWindow(QMainWindow):
     def _reorder_clip(self, src: int, dst: int) -> None:
         cl = self.project.clips
         if 0 <= src < len(cl) and 0 <= dst < len(cl) and src != dst:
+            self.timeline.clear_multi()
             cl.insert(dst, cl.pop(src))
             self._refresh_timeline(select=dst)
 
@@ -5174,6 +5356,71 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Eigene Presets (JSON) kommen hierhin: {paths.user_presets_dir()}")
 
     # -------------------------------------------------------------- Projekt
+    def collect_project(self) -> None:
+        """Datei → Projekt sammeln: fragt Ordner oder ZIP und kopiert alle benutzten Dateien dorthin."""
+        info = collectlib.summary(self.project)
+        if not info["files"] and not info["missing"]:
+            self.statusBar().showMessage("Das Projekt benutzt noch keine Dateien.")
+            return
+        text = f"{len(info['files'])} Datei(en), {info['bytes'] / 1e6:.0f} MB werden kopiert."
+        if info["missing"]:
+            text += f"\n{len(info['missing'])} Datei(en) fehlen und werden übersprungen."
+        box = QMessageBox(self)
+        box.setWindowTitle("Projekt sammeln")
+        box.setText(text + "\n\nWohin soll das Projekt mit allen Dateien?")
+        b_dir = box.addButton("In einen Ordner", QMessageBox.ButtonRole.AcceptRole)
+        b_zip = box.addButton("In eine ZIP-Datei", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Abbrechen", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        name = Path(self._project_file).stem if self._project_file else "Projekt"
+        if box.clickedButton() is b_zip:
+            f, _ = QFileDialog.getSaveFileName(self, "ZIP speichern", str(Path.home() / f"{name}_gesammelt.zip"), "ZIP-Datei (*.zip)")
+            if f:
+                self.run_collect(f if f.lower().endswith(".zip") else f + ".zip", True, name)
+        elif box.clickedButton() is b_dir:
+            d = QFileDialog.getExistingDirectory(self, "Zielordner wählen", str(Path.home()))
+            if d:
+                target = Path(d) / f"{name}_gesammelt"
+                n = 2
+                while target.exists():
+                    target = Path(d) / f"{name}_gesammelt_{n}"
+                    n += 1
+                self.run_collect(str(target), False, name)
+
+    def run_collect(self, target: str, as_zip: bool, name: str = "Projekt", show_progress: bool = True) -> dict | None:
+        """Kopiert die Dateien mit Fortschrittsanzeige; gibt das Ergebnis von collect() zurück, bei Abbruch/Fehler None."""
+        dlg = None
+        if show_progress:
+            dlg = QProgressDialog("Dateien werden kopiert …", "Abbrechen", 0, 100, self)
+            dlg.setWindowTitle(APP_NAME)
+            dlg.setWindowModality(Qt.WindowModality.WindowModal)
+            dlg.setMinimumDuration(0)
+            dlg.setValue(0)
+
+        def prog(frac: float, label: str):
+            if dlg is not None:
+                dlg.setValue(int(frac * 100))
+                dlg.setLabelText(f"Wird kopiert: {label}")
+                QApplication.processEvents()
+
+        try:
+            r = collectlib.collect(self.project, target, as_zip, name, prog, (lambda: dlg.wasCanceled()) if dlg is not None else None)
+        except collectlib.Cancelled:
+            self.statusBar().showMessage("Sammeln abgebrochen.")
+            return None
+        except Exception as exc:  # noqa: BLE001
+            diagnostics.log_error("Projekt sammeln fehlgeschlagen: %s", exc)
+            QMessageBox.critical(self, "Projekt sammeln", f"Das Sammeln ist fehlgeschlagen:\n{exc}")
+            return None
+        finally:
+            if dlg is not None:
+                dlg.close()
+        msg = f"Projekt gesammelt: {r['files']} Datei(en) in {target}"
+        if r["missing"]:
+            msg += f" – {len(r['missing'])} fehlende Datei(en) übersprungen"
+        self.statusBar().showMessage(msg)
+        return r
+
     def save_project(self) -> None:
         f, _ = QFileDialog.getSaveFileName(self, "Projekt speichern", self._project_file or "Projekt.cforge", f"{APP_NAME}-Projekt (*.cforge)")
         if f:
@@ -5424,7 +5671,7 @@ class MainWindow(QMainWindow):
         return True
 
     # ------------------------------------------------------------- Tastenkürzel
-    EDIT_KEYS = {"S": "s", "M": "m", "Left": "left", "Right": "right", "Home": "home", "End": "end"}   # Entf und Leertaste sind Menü-Aktionen
+    EDIT_KEYS = {"S": "s", "M": "m", "Escape": "esc", "Left": "left", "Right": "right", "Home": "home", "End": "end"}   # Entf und Leertaste sind Menü-Aktionen
 
     def _edit_keys_ok(self) -> bool:
         """Die Schnitt-Tasten gelten nicht, solange in einem Eingabefeld, einer Liste, einem Auswahlfeld oder Regler getippt wird."""
@@ -5449,6 +5696,11 @@ class MainWindow(QMainWindow):
         elif name in ("left", "right"):
             step = 1.0 if shift else self._frame_step()
             self._seek_project(max(0.0, min(self.project.duration - 0.01, now + (step if name == "right" else -step))))
+        elif name == "esc":
+            if not self.timeline.multi_items():
+                return False
+            self.timeline.clear_multi()
+            self.statusBar().showMessage("Auswahl aufgehoben.")
         elif name == "m":
             self.add_marker()
         elif name in ("prev_marker", "next_marker"):

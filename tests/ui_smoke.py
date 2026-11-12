@@ -810,6 +810,97 @@ def main() -> int:
         assert win.apply_beats(dlg49.times, True, False) is True and len(win.project.markers) == len(dlg49.times)
         win.clear_markers()
         assert win.btn_beats is not None
+    with section("Mehrfachauswahl (echte Mausereignisse, Strg-Klick, Rahmen, Löschen, Duplizieren)"):
+        from PySide6.QtCore import QPoint as _QP51
+        from PySide6.QtTest import QTest as _QT51
+        from app.core.project import OverlayClip as _OC51
+        lg51 = os.path.join(tempfile.mkdtemp(prefix="fate_ms_"), "m.png")
+        __import__("PIL.Image", fromlist=["Image"]).new("RGB", (64, 64), (200, 30, 30)).save(lg51)
+        win.project.overlays = [_OC51(lg51, 4.0, 0.0, 2.0, start=0.5, is_image=True), _OC51(lg51, 4.0, 0.0, 2.0, start=3.0, is_image=True)]
+        win.project.effects = [{"id": "glitch", "intensity": 50, "start": 0.2, "end": 1.2}]
+        win._refresh_timeline(select=0)
+        win.timeline.resize(1000, win.timeline.height())
+        win.timeline.grab()                                              # Rechtecke entstehen beim Zeichnen
+        tlw = win.timeline
+        assert len(tlw._orects) == 2 and len(tlw._frects) == 1, (len(tlw._orects), len(tlw._frects))
+
+        def ctr51(r):
+            return _QP51(int(r.center().x()), int(r.center().y()))
+
+        _QT51.mouseClick(tlw, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ctr51(tlw._orects[0][1]))
+        assert win.osel == 0 and not tlw.multi_items()
+        _QT51.mouseClick(tlw, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ControlModifier, ctr51(tlw._orects[1][1]))
+        _QT51.mouseClick(tlw, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ShiftModifier, ctr51(tlw._frects[0][1]))
+        assert tlw.multi_items() == [("f", 0), ("o", 0), ("o", 1)] or set(tlw.multi_items()) == {("o", 0), ("o", 1), ("f", 0)}, tlw.multi_items()
+        tlw.grab()                                                       # Zeichnen mit Auswahl darf nicht abstürzen
+        o0 = win.project.overlays[0].start
+        r0 = tlw._orects[0][1]
+        c0 = ctr51(r0)
+        _QT51.mousePress(tlw, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, c0)
+        _QT51.mouseMove(tlw, c0 + _QP51(40, 0))
+        _QT51.mouseRelease(tlw, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, c0 + _QP51(40, 0))
+        assert win.project.overlays[0].start > o0 + 0.1, ("Gruppe verschoben", o0, win.project.overlays[0].start)
+        assert len(tlw.multi_items()) == 3
+        win.duplicate_selected()
+        assert len(win.project.overlays) == 4 and len(win.project.effects) == 2 and len(tlw.multi_items()) == 3
+        win.delete_selected()
+        assert len(win.project.overlays) == 2 and len(win.project.effects) == 1 and not tlw.multi_items()
+        win._refresh_timeline(select=0)
+        tlw.grab()
+        a51 = tlw._orects[0][1]
+        b51 = tlw._orects[1][1]
+        start51 = _QP51(int(tlw._x(0.05)), int(min(a51.top(), b51.top()) - 3))
+        end51 = _QP51(int(max(a51.right(), b51.right()) + 4), int(max(a51.bottom(), b51.bottom()) + 2))
+        _QT51.mousePress(tlw, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, start51)
+        _QT51.mouseMove(tlw, end51)
+        tlw.grab()                                                       # Rahmen wird gezeichnet
+        _QT51.mouseRelease(tlw, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, end51)
+        assert ("o", 0) in tlw.multi_items() and ("o", 1) in tlw.multi_items(), tlw.multi_items()
+        _QT51.mouseClick(tlw, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, _QP51(int(tlw._x(0.05)), int(tlw._lane_y(2) + 4)))
+        assert not tlw.multi_items(), "Klick ins Leere hebt die Auswahl auf"
+        win.project.overlays = []
+        win.project.effects = []
+        win._refresh_timeline(select=0)
+    with section("Lücken schließen / Ripple-Löschen"):
+        from app.core.project import OverlayClip as _OC52
+        _png52 = os.path.join(tempfile.mkdtemp(prefix="fate_rp_"), "r.png")
+        __import__("PIL.Image", fromlist=["Image"]).new("RGB", (32, 32), (10, 200, 10)).save(_png52)
+        _n52 = len(win.project.clips)
+        win.project.overlays = [_OC52(_png52, 4.0, 0.0, 1.0, start=0.5, is_image=True), _OC52(_png52, 4.0, 0.0, 1.0, start=3.0, is_image=True)]
+        win._refresh_timeline(select=0)
+        assert win.close_all_gaps() == 1 and abs(win.project.overlays[1].start - 1.5) < 0.01
+        assert win.act_ripple.shortcut().toString() in ("Ctrl+Del", "Ctrl+Delete"), win.act_ripple.shortcut().toString()
+        win.osel = 0
+        win.ripple_delete_selected()                                  # gewähltes Bild-in-Bild wird gelöscht
+        assert len(win.project.overlays) == 1 and len(win.project.clips) == _n52
+        win.project.overlays = []
+        win._refresh_timeline(select=0)
+    with section("Standbild einfügen"):
+        _bak53 = __import__("copy").deepcopy(win.project.clips)
+        _d53 = win.project.duration
+        win._refresh_timeline(select=0)
+        win.timeline.set_playhead(min(0.5, _d53 / 2))
+        assert win.insert_freeze(1.0) is True
+        assert any(c.is_image and abs(c.length - 1.0) < 1e-6 for c in win.project.clips)
+        assert abs(win.project.duration - (_d53 + 1.0)) < 0.05, (win.project.duration, _d53)
+        win.project.clips = _bak53                                    # Zustand wie vorher
+        win._refresh_timeline(select=0)
+    with section("YouTube-Kapitel"):
+        win.project.markers = [{"t": 0.0, "name": "Start"}, {"t": 0.3, "name": "Zwei"}, {"t": 0.6, "name": "Drei"}]
+        _dlg54 = win.build_chapters_dialog()
+        assert _dlg54._box.toPlainText().startswith("0:00 Start"), _dlg54._box.toPlainText()
+        assert "Kürzer" in _dlg54._info.text() or "kürzer" in _dlg54._info.text() or _dlg54._result["ok"]
+        _dlg54._copy()
+        assert QApplication.clipboard().text().startswith("0:00 Start")
+        _dlg54.deleteLater()
+        win.project.markers = []
+    with section("Projekt sammeln"):
+        _d55 = tempfile.mkdtemp(prefix="fate_col_")
+        _r55 = win.run_collect(os.path.join(_d55, "ziel"), False, "T")          # echter Fortschrittsdialog
+        assert _r55 is not None and _r55["files"] >= 1 and os.path.isfile(_r55["project"]), _r55
+        _r56 = win.run_collect(os.path.join(_d55, "t.zip"), True, "T")
+        assert _r56 is not None and os.path.isfile(os.path.join(_d55, "t.zip"))
+        assert win.act_collect.text().startswith("Projekt sammeln")
     with section("Ton verbessern"):
         # Ton verbessern
         win._select_clip(0)

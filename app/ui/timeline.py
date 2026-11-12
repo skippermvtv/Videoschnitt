@@ -14,7 +14,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
 from ..core import effects as fxlib
-from ..core import overlaykeys
+from ..core import overlaykeys, selection
 from ..core.audiomix import effective_volume
 from .theme import ACCENT, MUTED, PANEL
 
@@ -62,6 +62,8 @@ class Timeline(QWidget):
     lane_mute_toggled = Signal(int)        # Spur 1…3: Stumm-Schalter im Spurkopf angeklickt
     title_dropped = Signal(str, float)     # (Vorlagen-ID, Projektzeit) – aus der Titelliste abgelegt
     transition_dropped = Signal(str, int)  # (Übergangs-ID, Nummer des Clips, nach dem der Übergang liegt)
+    multi_changed = Signal()               # Mehrfachauswahl hat sich geändert (Strg/Shift+Klick, Aufziehrahmen)
+    multi_edited = Signal()                # gewählte Blöcke wurden gemeinsam verschoben
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -74,6 +76,10 @@ class Timeline(QWidget):
         self._asel = -1
         self._osel = -1
         self._fsel = -1
+        self._multi: list[tuple[str, int]] = []      # Mehrfachauswahl (ab zwei Einträgen), siehe core/selection.py
+        self._multi_counts = None
+        self._last: tuple[str, int] | None = None    # zuletzt einzeln angeklickter Block
+        self._band: QRectF | None = None
         self._frects: list[tuple[int, QRectF]] = []
         self._fx_rows: list[int] = []
         self._ov_rows: list[int] = []
@@ -95,6 +101,8 @@ class Timeline(QWidget):
         self._asel = audio_selected
         self._osel = overlay_selected
         self._fsel = fx_selected
+        if self._multi and (project is None or self._multi_counts != selection.counts(project)):
+            self._multi = []                                  # Blöcke wurden hinzugefügt/gelöscht: die Nummern passen nicht mehr
         self._fx_rows = project.fx_rows(FX_MAX_ROWS) if project is not None else []
         self._ov_rows = project.overlay_rows(OV_MAX_ROWS) if project is not None else []
         self._clamp_view()
@@ -222,6 +230,94 @@ class Timeline(QWidget):
         return a.length
 
     # ------------------------------------------------------------ Zeichnen
+    # ------------------------------------------------------------ Mehrfachauswahl
+    def multi_items(self) -> list[tuple[str, int]]:
+        return list(self._multi)
+
+    def clear_multi(self) -> None:
+        if self._multi:
+            self._multi = []
+            self.multi_changed.emit()
+            self.update()
+
+    def set_multi(self, items) -> None:
+        """Setzt die Mehrfachauswahl; ab zwei gültigen Einträgen aktiv, sonst leer."""
+        items = selection.clean(self._project, items) if self._project is not None else []
+        self._multi = items if len(items) >= 2 else []
+        self._multi_counts = selection.counts(self._project) if self._multi else None
+        self.multi_changed.emit()
+        self.update()
+
+    def _in_multi(self, kind: str, i: int) -> bool:
+        return (kind, i) in self._multi
+
+    def _base_item(self) -> tuple[str, int] | None:
+        """Der zuletzt gewählte Block – Ausgangspunkt, wenn mit Strg/Shift weitere dazukommen."""
+        proj = self._project
+        if self._last is not None and selection.clean(proj, [self._last]):
+            return self._last
+        for kind, i in (("f", self._fsel), ("o", self._osel), ("a", self._asel), ("v", self._sel)):
+            if i >= 0 and selection.clean(proj, [(kind, i)]):
+                return (kind, i)
+        return None
+
+    def _toggle_multi(self, kind: str, idx: int) -> None:
+        cur = list(self._multi)
+        if not cur:
+            base = self._base_item()
+            cur = [base] if base is not None else []
+        if (kind, idx) in cur:
+            cur.remove((kind, idx))
+        else:
+            cur.append((kind, idx))
+        self.set_multi(cur)
+        if len(cur) == 1:                       # nur noch einer: wieder normale Einzelauswahl
+            self._last = cur[0]
+
+    def _multi_press(self, event, kind: str, idx: int) -> bool:
+        """Strg/Shift+Klick wählt Blöcke dazu oder ab; ein Klick auf einen schon gewählten Block (ohne Taste) zieht die ganze Auswahl.
+        True = der Klick ist erledigt."""
+        pos = event.position()
+        mods = event.modifiers()
+        if mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
+            self._toggle_multi(kind, idx)
+            return True
+        if self._multi and (kind, idx) in self._multi:
+            orig = selection.movable(self._project, self._multi)
+            self._drag = {"kind": "multi", "x": pos.x(), "orig": orig} if orig else None
+            return True
+        if self._multi:
+            self._multi = []
+            self.multi_changed.emit()
+        self._last = (kind, idx)
+        return False
+
+    def _band_apply(self, additive: bool) -> None:
+        r = self._band
+        self._band = None
+        if r is None or r.width() < 4 and r.height() < 4:                 # nur geklickt: Auswahl aufheben
+            if self._multi:
+                self.clear_multi()
+            return
+        hit: list[tuple[str, int]] = []
+        for i, vr in enumerate(self._vrects):
+            if r.intersects(vr) and 0 not in self._locked:
+                hit.append(("v", i))
+        for i, ar in self._arects:
+            if r.intersects(ar) and self._project.audio_clips[i].track not in self._locked:
+                hit.append(("a", i))
+        for i, orr in self._orects:
+            if r.intersects(orr) and 4 not in self._locked:
+                hit.append(("o", i))
+        for i, fr in self._frects:
+            if r.intersects(fr) and FX_LANE not in self._locked:
+                hit.append(("f", i))
+        if additive:
+            hit = list(self._multi or ([self._base_item()] if self._base_item() else [])) + hit
+        self.set_multi(hit)
+        if len(selection.clean(self._project, hit)) == 1:
+            self._last = selection.clean(self._project, hit)[0]
+
     def paintEvent(self, _event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -283,7 +379,8 @@ class Timeline(QWidget):
             r = QRectF(self._x(t0) + 1, y, max(6.0, c.length / span * avail - 2), V_H)
             self._vrects.append(r)
             p.setBrush(QColor(_COLORS[i % len(_COLORS)]))
-            p.setPen(QPen(QColor(ACCENT), 3) if i == self._sel and self._asel < 0 and self._osel < 0 and self._fsel < 0 else Qt.PenStyle.NoPen)
+            p.setPen(QPen(QColor(ACCENT), 3) if (self._in_multi("v", i) if self._multi else
+                                                 (i == self._sel and self._asel < 0 and self._osel < 0 and self._fsel < 0)) else Qt.PenStyle.NoPen)
             p.drawRoundedRect(r, 5, 5)
             p.setPen(QColor("white"))
             label = c.name + f"  {c.length:.1f} s"
@@ -312,7 +409,7 @@ class Timeline(QWidget):
             r = QRectF(x0, fy + 3.0 + row * FX_ROW_H, max(6.0, x1 - x0), FX_ROW_H - 2.0)
             self._frects.append((fi, r))
             p.setBrush(QColor(FX_COLOR))
-            p.setPen(QPen(QColor(ACCENT), 3) if fi == self._fsel else Qt.PenStyle.NoPen)
+            p.setPen(QPen(QColor(ACCENT), 3) if (self._in_multi("f", fi) if self._multi else fi == self._fsel) else Qt.PenStyle.NoPen)
             p.drawRoundedRect(r, 4, 4)
             p.setPen(QColor("white"))
             eff = fxlib.REGISTRY.get(e.get("id"))
@@ -334,7 +431,7 @@ class Timeline(QWidget):
                 r = QRectF(x0, oy, max(6.0, x1 - x0), V2_H)
             self._orects.append((oi, r))
             p.setBrush(QColor(OV_COLOR))
-            p.setPen(QPen(QColor(ACCENT), 3) if oi == self._osel else Qt.PenStyle.NoPen)
+            p.setPen(QPen(QColor(ACCENT), 3) if (self._in_multi("o", oi) if self._multi else oi == self._osel) else Qt.PenStyle.NoPen)
             p.drawRoundedRect(r, 5, 5)
             p.setPen(QColor("white"))
             p.drawText(r.adjusted(5, 2, -5, -2), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
@@ -361,7 +458,7 @@ class Timeline(QWidget):
             if muted:
                 col.setAlpha(110)
             p.setBrush(col)
-            p.setPen(QPen(QColor(ACCENT), 3) if idx == self._asel else Qt.PenStyle.NoPen)
+            p.setPen(QPen(QColor(ACCENT), 3) if (self._in_multi("a", idx) if self._multi else idx == self._asel) else Qt.PenStyle.NoPen)
             p.drawRoundedRect(r, 5, 5)
             pm = self._waves.get(a.path)
             if pm is not None and not pm.isNull() and a.duration > 0:
@@ -389,6 +486,13 @@ class Timeline(QWidget):
             if m.get("name"):
                 p.setPen(QColor("#4ad0ff"))
                 p.drawText(QPointF(mx + 7, 22.0), str(m["name"]))
+
+        if self._band is not None:
+            p.setPen(QPen(QColor(ACCENT), 1, Qt.PenStyle.DashLine))
+            c = QColor(ACCENT)
+            c.setAlpha(40)
+            p.setBrush(c)
+            p.drawRect(self._band)
 
         # Abspielkopf
         if self._playhead >= 0:
@@ -501,6 +605,9 @@ class Timeline(QWidget):
         fi, fmode = self._hit_fx(pos)
         if fi >= 0 and FX_LANE in self._locked:
             return
+        if fi >= 0 and self._multi_press(event, "f", fi):
+            self.update()
+            return
         if fi >= 0:
             s0, t0 = self._project.fx_span(fi)
             self._fsel, self._osel, self._asel = fi, -1, -1
@@ -510,6 +617,9 @@ class Timeline(QWidget):
             return
         oi, omode = self._hit_overlay(pos)
         if oi >= 0 and 4 in self._locked:
+            return
+        if oi >= 0 and self._multi_press(event, "o", oi):
+            self.update()
             return
         if oi >= 0:
             o = self._project.overlays[oi]
@@ -521,6 +631,9 @@ class Timeline(QWidget):
             return
         idx, mode = self._hit_audio(pos)
         if idx >= 0 and self._project.audio_clips[idx].track in self._locked:
+            return
+        if idx >= 0 and self._multi_press(event, "a", idx):
+            self.update()
             return
         if idx >= 0:
             a = self._project.audio_clips[idx]
@@ -535,6 +648,9 @@ class Timeline(QWidget):
         i, mode = self._hit_video(pos)
         if i >= 0 and 0 in self._locked:
             return
+        if i >= 0 and self._multi_press(event, "v", i):
+            self.update()
+            return
         if i >= 0:
             c = self._project.clips[i]
             self._sel = i
@@ -545,6 +661,11 @@ class Timeline(QWidget):
                           "started": False}
             self.clip_selected.emit(i)
             self.update()
+            return
+        # Leerer Bereich: Aufziehrahmen (mit Strg/Shift zur bestehenden Auswahl dazu)
+        additive = bool(event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier))
+        self._drag = {"kind": "band", "x0": pos.x(), "y0": pos.y(), "additive": additive}
+        self._band = QRectF(pos.x(), pos.y(), 0.0, 0.0)
 
     def _snap_points(self, skip: int, skip_fx: int = -1) -> list[float]:
         pts = [0.0, self._total()] + [float(m.get("t", 0.0)) for m in self._project.markers]
@@ -593,6 +714,13 @@ class Timeline(QWidget):
             self._move_overlay(d, pos)
         elif kind == "f":
             self._move_fx(d, pos)
+        elif kind == "band":
+            self._band = QRectF(QPointF(d["x0"], d["y0"]), QPointF(pos.x(), pos.y())).normalized()
+            self.update()
+        elif kind == "multi":
+            selection.move(self._project, d["orig"], (pos.x() - d["x"]) / self._avail() * self._span())
+            self.multi_edited.emit()
+            self.update()
 
     def _move_fx(self, d: dict, pos) -> None:
         """Effekt-Block verschieben (rastet an Clipgrenzen und anderen Blöcken ein) oder an einem Rand kürzen/verlängern."""
@@ -719,6 +847,14 @@ class Timeline(QWidget):
         self._drag = None
         self._drop_t = -1.0
         if d is None:
+            return
+        if d["kind"] == "band":
+            self._band_apply(d["additive"])
+            self.update()
+            return
+        if d["kind"] == "multi":
+            self.multi_edited.emit()
+            self.update()
             return
         if d["kind"] == "a":
             self.audio_edited.emit(d["idx"])

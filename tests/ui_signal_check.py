@@ -1058,4 +1058,107 @@ win.project.markers = []
 assert win.apply_beats([1.0], False, True) is False, "zu wenige Beats: Meldung, nichts geändert"
 no_errors("1.5.0: Beat-Sync")
 print("OK  1.5.0: Beat-Sync")
+# 1.5.1: Mehrfachauswahl – gemeinsam löschen, duplizieren, Esc
+win.fsel = win.osel = win.asel = -1
+win.project.overlays = [OverlayClip(_vid, 5.0, start=1.0), OverlayClip(_vid, 5.0, start=7.0)]
+win.project.effects = [{"id": "glitch", "intensity": 50, "start": 0.5, "end": 1.5}]
+win._refresh_timeline(select=0)
+_nc = len(win.project.clips)
+win.timeline.set_multi([("o", 0), ("o", 1), ("f", 0)])
+assert len(win.timeline.multi_items()) == 3
+win.duplicate_selected()
+assert len(win.project.overlays) == 4 and len(win.project.effects) == 2, (len(win.project.overlays), len(win.project.effects))
+assert len(win.timeline.multi_items()) == 3, "die Kopien sind danach gewählt"
+win.delete_selected()
+assert len(win.project.overlays) == 2 or len(win.project.overlays) == 1, len(win.project.overlays)
+assert not win.timeline.multi_items(), "nach dem Löschen keine Auswahl"
+win.project.overlays = []
+win.project.effects = []
+win.timeline.set_multi([("v", 0), ("v", 0)])                      # doppelt = ein Eintrag = keine Mehrfachauswahl
+assert not win.timeline.multi_items()
+win.timeline.set_multi([("o", 0), ("f", 0)])                      # ungültig: Blöcke gibt es nicht mehr
+assert not win.timeline.multi_items()
+win.project.overlays = [OverlayClip(_vid, 5.0, start=1.0), OverlayClip(_vid, 5.0, start=7.0)]
+win._refresh_timeline(select=0)
+win.timeline.set_multi([("o", 0), ("o", 1)])
+assert win.edit_key("esc") is True and not win.timeline.multi_items()
+assert win.edit_key("esc") is False, "ohne Auswahl tut Esc nichts"
+win.timeline.set_multi([("o", 0), ("o", 1)])
+win.timeline.set_multi([("o", 0), ("o", 1)])
+win._on_multi_changed()
+win.timeline.clear_multi()
+win.project.overlays = []
+win._refresh_timeline(select=0)
+assert len(win.project.clips) == _nc
+# 1.5.1: Lücken schließen / Ripple-Löschen
+win.fsel = win.osel = win.asel = -1
+win.timeline.clear_multi()
+_dur0 = win.project.duration
+win.project.overlays = [OverlayClip(_vid, 5.0, 0.0, 1.0, start=0.2), OverlayClip(_vid, 5.0, 0.0, 1.0, start=_dur0 - 1.0)]
+win.project.effects = []
+win._refresh_timeline(select=0)
+_c0 = win.project.clips[0].length
+_ov_late = win.project.overlays[1].start
+win.act_ripple_tracks.isChecked = lambda: True
+assert win.ripple_delete_selected() >= 1
+assert len(win.project.clips) == _nc - 1 and abs(win.project.duration - (_dur0 - _c0)) < 0.05, (len(win.project.clips), win.project.duration)
+assert abs(win.project.overlays[-1].start - (_ov_late - _c0)) < 0.01 or len(win.project.overlays) == 1, [o.start for o in win.project.overlays]
+win.undo() if hasattr(win, "undo") else None
+win.project.overlays = [OverlayClip(_vid, 5.0, 0.0, 1.0, start=0.5), OverlayClip(_vid, 5.0, 0.0, 1.0, start=3.0)]
+win._refresh_timeline(select=0)
+assert win.close_all_gaps() == 1 and abs(win.project.overlays[1].start - 1.5) < 0.01, [o.start for o in win.project.overlays]
+assert win.close_all_gaps() == 0, "ohne Lücken passiert nichts"
+win.osel = 0
+win.ripple_delete_selected()
+assert len(win.project.overlays) == 1 and win.osel == -1, "gewähltes Bild-in-Bild wird einfach gelöscht"
+win.project.overlays = []
+no_errors("1.5.1: Ripple")
+print("OK  1.5.1: Ripple")
+# 1.5.1: Standbild einfügen
+import app.core.freeze as _fz
+from PIL import Image
+win.project.overlays = []
+win._refresh_timeline(select=0)
+_nc2 = len(win.project.clips)
+_dur2 = win.project.duration
+_real_extract = _fz.extract
+_fz.extract = lambda clip, local, png: Image.new("RGB", (64, 36), (0, 0, 255)).save(png)
+win.timeline.set_playhead(min(1.0, _dur2 / 2))
+assert win.insert_freeze(2.0) is True
+assert len(win.project.clips) in (_nc2 + 1, _nc2 + 2) and abs(win.project.duration - (_dur2 + 2.0)) < 0.05, (len(win.project.clips), win.project.duration)
+assert any(c.is_image and abs(c.length - 2.0) < 1e-6 for c in win.project.clips)
+_img_i = [i for i, c in enumerate(win.project.clips) if c.is_image][0]
+win.timeline.set_playhead(win.project.clip_start(_img_i) + 0.5)
+assert win.insert_freeze(2.0) is False, "auf einem Standbild wird kein weiteres Standbild gemacht"
+_fz.extract = _real_extract
+win.project.clips = [c for c in win.project.clips if not c.is_image]
+win._refresh_timeline(select=0)
+no_errors("1.5.1: Standbild einfügen")
+print("OK  1.5.1: Standbild einfügen")
+# 1.5.1: YouTube-Kapitel
+_dc = win.project.duration
+win.project.markers = [{"t": 0.0, "name": "Start"}, {"t": _dc * 0.4, "name": "Mitte"}, {"t": _dc * 0.6, "name": ""}]
+dlg = win.build_chapters_dialog()
+assert dlg._result["text"].startswith("0:00 Start") and "Mitte" in dlg._result["text"] and "Marker ohne Namen" in " ".join(dlg._result["notes"]), dlg._result
+dlg._edit.setText("Los")
+win.project.markers = [{"t": _dc * 0.4, "name": "Mitte"}]
+dlg._refresh()
+assert dlg._result["items"][0][1] in ("Los", "Anfang"), dlg._result["items"]
+dlg._copy()
+win.project.markers = []
+no_errors("1.5.1: YouTube-Kapitel")
+print("OK  1.5.1: YouTube-Kapitel")
+# 1.5.1: Projekt sammeln
+import os
+import tempfile as _tf51
+_cd = _tf51.mkdtemp(prefix="fate_col_")
+_r = win.run_collect(os.path.join(_cd, "ziel"), False, "T", show_progress=False)
+assert _r is not None and _r["files"] >= 1 and os.path.isfile(_r["project"]), _r
+_r2 = win.run_collect(os.path.join(_cd, "t.zip"), True, "T", show_progress=False)
+assert _r2 is not None and os.path.isfile(os.path.join(_cd, "t.zip"))
+assert win.run_collect(os.path.join(_cd, "x", "y", "ziel"), False, "T", show_progress=False) is not None
+no_errors("1.5.1: Projekt sammeln")
+print("OK  1.5.1: Projekt sammeln")
+no_errors("1.5.1: Mehrfachauswahl")
+print("OK  1.5.1: Mehrfachauswahl")
 print("Signal-Prüfung OK")

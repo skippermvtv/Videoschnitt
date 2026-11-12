@@ -45,7 +45,7 @@ total = p.duration
 check(abs(total - 5.5) < 0.1, f"Projektlänge {total}")
 
 # Pfad und Einträge
-check(subs.srt_path_for("/a/b/Mein Film.mp4") == "/a/b/Mein Film.srt", subs.srt_path_for("/a/b/Mein Film.mp4"))
+check(Path(subs.srt_path_for("/a/b/Mein Film.mp4")) == Path("/a/b/Mein Film.srt"), subs.srt_path_for("/a/b/Mein Film.mp4"))   # Windows: Backslashes
 cues = subs.export_cues(p)
 check([c.text for c in cues] == ["Hallo Welt", "Zeile eins\nZeile zwei", "Zu lang"], [c.text for c in cues])
 check(abs(cues[-1].end - total) < 1e-6 and all(c.end <= total + 1e-6 for c in cues), "Einträge auf die Videolänge begrenzt")

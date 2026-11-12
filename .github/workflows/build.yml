@@ -101,6 +101,11 @@ jobs:
           T tests/test_stillframe.py $env:RUNNER_TEMP
           T tests/test_word_times.py $env:RUNNER_TEMP
           T tests/test_beats.py $env:RUNNER_TEMP
+          T tests/test_selection.py $env:RUNNER_TEMP
+          T tests/test_gaps.py $env:RUNNER_TEMP
+          T tests/test_freeze.py $env:RUNNER_TEMP
+          T tests/test_chapters.py $env:RUNNER_TEMP
+          T tests/test_collect.py $env:RUNNER_TEMP
           T tests/test_loudness.py $env:RUNNER_TEMP
           T tests/test_overlay_audio.py $env:RUNNER_TEMP
           T tests/test_multiexport.py $env:RUNNER_TEMP
