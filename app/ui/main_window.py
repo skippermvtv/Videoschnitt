@@ -24,12 +24,12 @@ from PySide6.QtWidgets import (
 
 from .. import paths
 from ..core import effects as fx
-from ..core import audiomix, chapters as chapterlib, collect as collectlib, freeze as freezelib, gaps as gapslib, selection as sellib, beats as beatlib, duplicate, gif as giflib, stillframe, karaoke, markers as markerlib, scenes, silence, keypreview, loudcheck, overlaykeys, subpreview, whatsnew, diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
+from ..core import audiomix, chapters as chapterlib, cache as cachelib, collect as collectlib, proxy as proxylib, freeze as freezelib, gaps as gapslib, selection as sellib, beats as beatlib, duplicate, gif as giflib, stillframe, karaoke, markers as markerlib, scenes, silence, keypreview, loudcheck, overlaykeys, subpreview, whatsnew, diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
 from ..core.history import History
 from ..core.fontcheck import missing_chars
 from ..core.helptext import help_html
 from ..core.project import (IMAGE_MAX, OVERLAY_CORNERS, TRACK_NAMES, AudioClip, Clip, MediaInfo, OverlayClip,
-                            TEXT_ANIMS, Project, SubtitleCue, TextLayer, is_image_path, probe, probe_audio)
+                            TEXT_ANIMS, Project, SubtitleCue, TextLayer, is_image_path, probe_audio, probe_many)
 from ..version import APP_NAME, VERSION
 from .colorwidgets import ColorWheel, CurveEditor
 from .maskcanvas import MaskCanvas
@@ -41,7 +41,7 @@ from .scenedialog import SceneDialog
 from .silencedialog import SilenceDialog
 from .whatsnewdialog import WhatsNewDialog
 from .timeline import FX_MIME, MEDIA_MIME, TITLE_MIME, TRANS_MIME, Timeline
-from .workers import TransThumbWorker, StabilizeWorker, TrackWorker, FrameWorker, ThumbWorker, ExportWorker, GradePreviewWorker, UpdateCheckWorker, UpdateDownloadWorker, WaveformWorker, AsrWorker, WhisperSetupWorker, DiagnoseWorker
+from .workers import ProxyWorker, TransThumbWorker, StabilizeWorker, TrackWorker, FrameWorker, ThumbWorker, ExportWorker, GradePreviewWorker, UpdateCheckWorker, UpdateDownloadWorker, WaveformWorker, AsrWorker, WhisperSetupWorker, DiagnoseWorker
 
 VIDEO_FILTER = ("Videos und Bilder (*.mp4 *.mov *.mkv *.avi *.webm *.m4v *.wmv *.flv *.mts *.m2ts "
                 "*.jpg *.jpeg *.png *.webp *.bmp *.tif *.tiff);;Alle Dateien (*)")
@@ -179,6 +179,11 @@ class MainWindow(QMainWindow):
         # Live-Vorschau: nach jeder Änderung rechnet ein Hintergrundauftrag einen kurzen Ausschnitt am Abspielkopf neu
         _cfg = settings.load()
         self._live_on = bool(_cfg.get("live_preview", True))
+        self._proxy_auto = bool(_cfg.get("proxy_auto", True))        # große Videos automatisch als Proxy anlegen
+        self._proxy_use = bool(_cfg.get("proxy_use", True))          # fertige Proxys in Player und Vorschau benutzen
+        self._proxy_worker = None
+        self._proxy_queue: list[tuple[str, bool]] = []
+        self._trim_cache()
         self._live_len_cfg = max(2.0, min(30.0, float(_cfg.get("live_len", 6.0))))
         self._live_worker = None
         self._live_pending: tuple | None = None
@@ -186,6 +191,8 @@ class MainWindow(QMainWindow):
         self._live_state = ""           # Projektstand, aus dem sie berechnet wurde
         self._live_start_t = 0.0
         self._live_len = 0.0
+        self._live_shown_at = 0.0
+        self._live_advanced = ""                 # Abschnitt, von dem aus schon weitergeschaltet wurde
         self._live_next_ready: tuple | None = None      # (Start, Datei, Projektstand) des vorab gerechneten nächsten Abschnitts
         self._live_playing = False
         self._live_timer = QTimer(self)
@@ -217,6 +224,14 @@ class MainWindow(QMainWindow):
         if icon.exists():
             self.setWindowIcon(QIcon(str(icon)))
         self.resize(1480, 880)
+        try:                                              # nie größer als der Bildschirm (kleine Laptops, Skalierung 125–150 %)
+            from PySide6.QtGui import QGuiApplication
+            scr = QGuiApplication.primaryScreen()
+            if scr is not None:
+                av = scr.availableGeometry()
+                self.resize(min(1480, max(900, av.width() - 40)), min(880, max(600, av.height() - 80)))
+        except Exception:  # noqa: BLE001 - Größe ist nur Komfort
+            pass
         self.setAcceptDrops(True)
         self._load_fonts()
         self._build_ui()
@@ -929,14 +944,21 @@ class MainWindow(QMainWindow):
         for h, label in prevcache.PREVIEW_QUALITIES:
             self.cmb_prev_q.addItem(label, h)
         self.cmb_prev_q.setCurrentIndex(max(0, self.cmb_prev_q.findData(int(cfg["preview_height"]))))
+        self.cmb_live_q = QComboBox()
+        for h, label in prevcache.LIVE_QUALITIES:
+            self.cmb_live_q.addItem(label, h)
+        self.cmb_live_q.setCurrentIndex(max(0, self.cmb_live_q.findData(prevcache.clean_live_height(cfg.get("live_height")))))
+        self.cmb_live_q.setToolTip("Auflösung der Live-Vorschau („● Live“). Höher = schärfer, aber langsamer. Mit Proxys bleibt auch 540p/720p flüssig.")
         self.chk_hw = QCheckBox("Grafikkarte beim Export nutzen (schneller, wenn vorhanden)")
         self.chk_hw.setChecked(bool(cfg["hw_encode"]))
         for wdg in (self.cmb_prev_len, self.cmb_prev_q):
             wdg.currentIndexChanged.connect(self._on_perf_changed)
+        self.cmb_live_q.currentIndexChanged.connect(self._on_live_q_changed)
         self.chk_hw.toggled.connect(self._on_perf_changed)
         form.addRow(QLabel("Vorschau und Leistung"))
         form.addRow("Vorschau-Länge", self.cmb_prev_len)
-        form.addRow("Vorschau-Qualität", self.cmb_prev_q)
+        form.addRow("Vorschau-Qualität (Strg+P)", self.cmb_prev_q)
+        form.addRow("Live-Vorschau-Qualität", self.cmb_live_q)
         form.addRow(self.chk_hw)
         hint = QLabel("„Vorschau ab Abspielkopf“ (Strg+P) rechnet Effekte, Text, Ton und Übergänge in kleiner Auflösung "
                       "und spielt das Ergebnis ab. Unveränderte Vorschauen starten sofort aus dem Zwischenspeicher.")
@@ -2404,6 +2426,21 @@ class MainWindow(QMainWindow):
         mf.addSeparator()
         self.act_collect = act("Projekt sammeln (alle Dateien in einen Ordner oder ZIP) …", self.collect_project)
         mf.addAction(self.act_collect)
+        mf.addSeparator()
+        self.act_proxy_make = act("Proxys für alle Videos im Projekt erstellen …", self.make_proxies)
+        mf.addAction(self.act_proxy_make)
+        self.act_proxy_auto = QAction("Proxys automatisch für große Videos erstellen (über Full HD, HEVC)", self)
+        self.act_proxy_auto.setCheckable(True)
+        self.act_proxy_auto.setChecked(self._proxy_auto)
+        self.act_proxy_auto.toggled.connect(self.set_proxy_auto)
+        mf.addAction(self.act_proxy_auto)
+        self.act_proxy_use = QAction("Proxys in der Vorschau benutzen (Export nutzt immer das Original)", self)
+        self.act_proxy_use.setCheckable(True)
+        self.act_proxy_use.setChecked(self._proxy_use)
+        self.act_proxy_use.toggled.connect(self.set_proxy_use)
+        mf.addAction(self.act_proxy_use)
+        self.act_cache = act("Zwischenspeicher verwalten …", self.cache_dialog)
+        mf.addAction(self.act_cache)
 
         # Name oben rechts in der Menüleiste (rot, wie das Logo)
         brand = QLabel(APP_NAME)
@@ -2966,11 +3003,14 @@ class MainWindow(QMainWindow):
 
     def import_files(self, files: list[str]) -> None:
         errors = []
+        probed = probe_many([f for f in files if f not in self.media])      # mehrere Dateien gleichzeitig lesen
         for f in files:
             if f in self.media:
                 continue
             try:
-                info = probe(f)
+                info = probed[f]
+                if isinstance(info, Exception):
+                    raise info
                 if info.duration <= 0:
                     raise ValueError("Keine Videolänge erkannt (Bilder werden noch nicht unterstützt).")
             except Exception as exc:  # noqa: BLE001
@@ -2989,10 +3029,158 @@ class MainWindow(QMainWindow):
             self.media_list.addItem(it)
             self._start_thumb(f, info)
         self.media_hint.setVisible(self.media_list.count() == 0)
+        if self._proxy_auto:
+            self._proxy_schedule([f for f in files if f in self.media and not self.media[f].is_image], force=False)
         if errors:
             QMessageBox.warning(self, "Import", "Nicht alle Dateien konnten gelesen werden:\n\n" + "\n".join(errors))
         if files and not self.project.clips and files[0] in self.media:
             self._add_to_timeline(files[0])
+
+    # ------------------------------------------------------------ Proxys
+    def _play_source(self, path: str) -> str:
+        """Datei, die der Player lädt: der Proxy, falls es einen gibt und er benutzt werden soll, sonst das Original."""
+        if self._proxy_use:
+            pr = proxylib.existing(path)
+            if pr:
+                cachelib.touch(pr)
+                return pr
+        return path
+
+    def _preview_project(self):
+        """Projekt für Vorschau-Rechnungen (Proxys statt Originale); der Export nimmt immer self.project."""
+        return proxylib.substitute(self.project) if self._proxy_use else self.project
+
+    def _forget_player_source(self) -> None:
+        """Der Player soll beim nächsten Öffnen die Datei neu wählen (Proxy oder Original) – nicht mitten in der Wiedergabe."""
+        if self.player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
+            self._cur_path = ""
+
+    def set_proxy_auto(self, on: bool) -> None:
+        self._proxy_auto = bool(on)
+        settings.save({"proxy_auto": self._proxy_auto})
+        if self._proxy_auto:
+            self._proxy_schedule([c.path for c in self.project.clips if not c.is_image], force=False)
+
+    def set_proxy_use(self, on: bool) -> None:
+        self._proxy_use = bool(on)
+        settings.save({"proxy_use": self._proxy_use})
+        self._forget_player_source()
+
+    def make_proxies(self) -> None:
+        """Menü: Proxys für alle Videos des Projekts erstellen (auch für kleine)."""
+        files = proxylib.candidates(self.project)
+        if not files:
+            self.statusBar().showMessage("Für alle Videos im Projekt gibt es schon Proxys (oder es sind keine Videos da).")
+            return
+        self._proxy_schedule(files, force=True)
+
+    def _proxy_schedule(self, files: list[str], force: bool) -> None:
+        """Legt Dateien in die Warteschlange; ein Hintergrundauftrag arbeitet sie nacheinander ab."""
+        files = [f for f in dict.fromkeys(files) if f and not is_image_path(f) and os.path.isfile(f) and not proxylib.existing(f)]
+        if not files:
+            return
+        self._proxy_queue.extend((f, force) for f in files if (f, force) not in self._proxy_queue)
+        self._proxy_next()
+
+    def _proxy_next(self) -> None:
+        if self._proxy_worker is not None or not self._proxy_queue:
+            return
+        force = self._proxy_queue[0][1]
+        batch = [f for f, fo in self._proxy_queue if fo == force]
+        self._proxy_queue = [(f, fo) for f, fo in self._proxy_queue if fo != force]
+        w = ProxyWorker(batch, force, self)
+        w.progress.connect(lambda i, n, name, fr: self.statusBar().showMessage(f"Proxy {i}/{n}: {name} … {int(fr * 100)} %"))
+        w.item.connect(self._on_proxy_item)
+        w.done.connect(self._on_proxy_done)
+        self._proxy_worker = w
+        w.start()
+
+    def _on_proxy_item(self, src: str, pr: str) -> None:
+        for i in range(self.media_list.count()):
+            it = self.media_list.item(i)
+            if it.data(Qt.ItemDataRole.UserRole) == src and "Proxy" not in it.text():
+                it.setText(it.text() + " · Proxy ✓")
+                break
+        if self._proxy_use and src == self._cur_path:
+            self._forget_player_source()       # nächste Wiedergabe nimmt den Proxy
+
+    def _on_proxy_done(self, msg: str) -> None:
+        self._proxy_worker = None
+        self.statusBar().showMessage(msg.splitlines()[0] if msg else "Proxys fertig")
+        if "\n" in msg:
+            QMessageBox.warning(self, "Proxys", msg)
+        self._proxy_next()
+
+    def build_cache_dialog(self) -> QDialog:
+        """Fenster „Zwischenspeicher verwalten“: Größe je Stelle, Häkchen zum Leeren, Obergrenze für Proxys."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Zwischenspeicher verwalten")
+        dlg.resize(560, 420)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel("Das sind Dateien, die das Programm jederzeit neu berechnen kann. Deine Projekte und Originale bleiben unberührt."))
+        boxes: dict[str, QCheckBox] = {}
+        total = QLabel()
+        for row in cachelib.overview():
+            cb = QCheckBox(f"{row['label']} – {cachelib.human(row['bytes'])} ({row['files']} Dateien)\n    {row['note']}")
+            cb.setChecked(row["key"] != "proxies")
+            cb.setToolTip(row["path"])
+            boxes[row["key"]] = cb
+            lay.addWidget(cb)
+        lay.addWidget(total)
+        lim = QHBoxLayout()
+        lim.addWidget(QLabel("Proxys höchstens:"))
+        spin = QDoubleSpinBox()
+        spin.setRange(1.0, 500.0)
+        spin.setDecimals(0)
+        spin.setSuffix(" GB")
+        spin.setValue(float(settings.load().get("proxy_limit_gb", cachelib.DEFAULT_PROXY_LIMIT_GB)))
+        spin.setToolTip("Wird die Grenze überschritten, werden beim Start die am längsten ungenutzten Proxys gelöscht.")
+        lim.addWidget(spin)
+        lim.addStretch(1)
+        lay.addLayout(lim)
+        btns = QHBoxLayout()
+        b_clear = QPushButton("Ausgewählte leeren")
+        b_close = QPushButton("Schließen")
+        btns.addStretch(1)
+        btns.addWidget(b_clear)
+        btns.addWidget(b_close)
+        lay.addLayout(btns)
+
+        def refresh():
+            ov = cachelib.overview()
+            total.setText(f"Zusammen: {cachelib.human(sum(r['bytes'] for r in ov))}")
+            for r in ov:
+                boxes[r["key"]].setText(f"{r['label']} – {cachelib.human(r['bytes'])} ({r['files']} Dateien)\n    {r['note']}")
+
+        def clear():
+            keys = [k for k, cb in boxes.items() if cb.isChecked()]
+            freed = cachelib.clear(keys)
+            if "proxies" in keys:
+                self._forget_player_source()
+            refresh()
+            self.statusBar().showMessage(f"{cachelib.human(freed)} freigegeben.")
+            dlg._freed = freed
+
+        def limit_changed(v):
+            settings.save({"proxy_limit_gb": float(v)})
+
+        b_clear.clicked.connect(clear)
+        b_close.clicked.connect(dlg.accept)
+        spin.valueChanged.connect(limit_changed)
+        dlg._boxes, dlg._spin, dlg._clear, dlg._refresh, dlg._freed = boxes, spin, clear, refresh, 0
+        refresh()
+        return dlg
+
+    def cache_dialog(self) -> None:
+        self._cache_dlg = self.build_cache_dialog()
+        self._cache_dlg.exec()
+
+    def _trim_cache(self) -> None:
+        """Beim Start: Proxys auf die gewählte Obergrenze begrenzen (am längsten ungenutzte zuerst)."""
+        try:
+            cachelib.enforce_limit("proxies", int(float(settings.load().get("proxy_limit_gb", cachelib.DEFAULT_PROXY_LIMIT_GB)) * 1e9))
+        except Exception as exc:  # noqa: BLE001 - Aufräumen darf den Start nie verhindern
+            diagnostics.log_error("Zwischenspeicher aufräumen: %s", exc)
 
     def _start_thumb(self, path: str, info) -> None:
         w = ThumbWorker(path, info.duration, info.is_image, self)
@@ -4047,9 +4235,12 @@ class MainWindow(QMainWindow):
     def add_overlay_files(self, files: list[str]) -> None:
         errors = []
         t0 = self.timeline.playhead if self.timeline.playhead >= 0 else 0.0
+        probed = probe_many(list(files))
         for f in files:
             try:
-                info = probe(f)
+                info = probed[f]
+                if isinstance(info, Exception):
+                    raise info
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{Path(f).name}: {exc}")
                 continue
@@ -4688,7 +4879,7 @@ class MainWindow(QMainWindow):
         self._pending_seek = seek_ms
         if path != self._cur_path:
             self._cur_path = path
-            self.player.setSource(QUrl.fromLocalFile(path))
+            self.player.setSource(QUrl.fromLocalFile(self._play_source(path)))
         else:
             self._apply_pending()
         if live and self._live_on and path != self._live_path:
@@ -5113,7 +5304,12 @@ class MainWindow(QMainWindow):
     def _on_perf_changed(self, *_args) -> None:
         settings.save({"preview_len": float(self.cmb_prev_len.currentData() or 0.0),
                        "preview_height": int(self.cmb_prev_q.currentData() or 360),
+                       "live_height": prevcache.clean_live_height(self.cmb_live_q.currentData()),
                        "hw_encode": bool(self.chk_hw.isChecked())})
+    def _on_live_q_changed(self, *_args) -> None:
+        self._on_perf_changed()
+        if self._live_on and self.project.clips:
+            self._live_timer.start(450)                    # neue Qualität: Vorschau neu rechnen
 
     def render_preview(self) -> None:
         if not self._check_ready():
@@ -5138,7 +5334,7 @@ class MainWindow(QMainWindow):
             return
         part = target.with_name(target.stem + ".part.mp4")
         try:
-            cmd, total, tmp = exporter.build_command(self.project, str(part), draft=True, start=start,
+            cmd, total, tmp = exporter.build_command(self._preview_project(), str(part), draft=True, start=start,
                                                      max_seconds=length or None, preview_height=height)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Vorschau", str(exc))
@@ -5159,7 +5355,7 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------- Live-Vorschau
     def _live_height(self) -> int:
-        return min(360, int(self.cmb_prev_q.currentData() or 360))
+        return prevcache.clean_live_height(self.cmb_live_q.currentData())
 
     def _set_live_label(self, text: str) -> None:
         self.live_label.setText(text)
@@ -5251,7 +5447,7 @@ class MainWindow(QMainWindow):
             return
         part = target.with_name(target.stem + ".part.mp4")
         try:
-            wp, delta, wl = projwin.project_window(self.project, t, length)
+            wp, delta, wl = projwin.project_window(self._preview_project(), t, length)
             cmd, tot, tmp = exporter.build_command(wp, str(part), draft=True, preview_height=height,
                                                    start=delta, max_seconds=wl)
         except Exception as exc:  # noqa: BLE001
@@ -5311,6 +5507,8 @@ class MainWindow(QMainWindow):
         play = playing if autoplay is None else autoplay
         self._live_path, self._live_state = str(path), state
         self._live_start_t, self._live_len = start, ln
+        self._live_advanced = ""
+        self._live_shown_at = time.monotonic() + 0.3 if (start + ln - pos) > 0.6 else 0.0     # Schonfrist gegen späte Ende-Signale
         self._open_media(str(path), max(0, int(round((pos - start) * 1000))), None, autoplay=play, live=False)
         self._preview_path, self._preview_start = str(path), start      # nach _open_media setzen
         self._live_playing = play
@@ -5327,20 +5525,31 @@ class MainWindow(QMainWindow):
         if (pos_ms > 0.45 * self._live_len * 1000 and nxt < self.project.duration - 0.05
                 and self._live_worker is None and self._live_next_ready is None):
             self._live_request(start=nxt, show=False)
+        if self._live_len > 0 and pos_ms >= self._live_len * 1000 - 30:      # Ende erreicht, auch ohne „EndOfMedia“
+            self._live_end_of_media()
 
     def _live_end_of_media(self) -> None:
         """Die Live-Vorschau ist zu Ende: beim Abspielen nahtlos mit dem nächsten Abschnitt weitermachen."""
         if not (self._live_on and self._live_path and self._cur_path == self._live_path and self._live_playing):
+            if self._live_on and self._live_path:
+                diagnostics.log("Live-Ende ohne Weiterschalten: cur==live %s, playing %s", self._cur_path == self._live_path,
+                                self._live_playing)
+            return
+        if self._live_advanced == self._live_path:          # dieser Abschnitt wurde schon weitergeschaltet
+            return
+        if time.monotonic() < self._live_shown_at:           # verspätetes Ende-Signal des alten Abschnitts nicht auf den neuen anwenden
             return
         nxt = self._live_start_t + self._live_len
         if nxt >= self.project.duration - 0.05:
             self._live_playing = False
             return
+        self._live_advanced = self._live_path
         ready = self._live_next_ready
         if ready and abs(ready[0] - nxt) < 0.11 and ready[2] == self.project.to_json():
             self._live_next_ready = None
             self._live_show(ready[1], ready[0], ready[3], ready[2], at=ready[0], autoplay=True)
         else:
+            self._live_next_ready = None
             self._live_request(start=nxt, show=True, at=nxt, autoplay=True)
 
     @staticmethod
@@ -5450,6 +5659,8 @@ class MainWindow(QMainWindow):
         self._saved_state = state
         if self.project.missing_paths():
             self.relink_dialog()
+        elif self._proxy_auto:
+            self._proxy_schedule([c.path for c in self.project.clips if not c.is_image], force=False)
 
     # --------------------------------------------------------------- Updates
     def check_updates(self, silent: bool) -> None:
@@ -5469,7 +5680,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.information(self, "Updates", f"Du hast die neueste Version ({VERSION}).")
                 return
             if QMessageBox.question(self, "Update verfügbar",
-                                    f"Version {info.version} ist verfügbar (installiert: {VERSION}).\n\n{info.notes}\n\nJetzt herunterladen und installieren?") \
+                                    f"Version {info.version} ist verfügbar (installiert: {VERSION}).\n\n{info.notes}\n\nJetzt herunterladen und installieren?\n\n{updater.BLOCK_HINT}") \
                     == QMessageBox.StandardButton.Yes:
                 self._download_update(info)
 
@@ -5749,6 +5960,10 @@ class MainWindow(QMainWindow):
         if self._stab_worker is not None:
             self._stab_worker.cancel()
             self._stab_worker.wait(3000)
+        self._proxy_queue = []
+        if self._proxy_worker is not None:
+            self._proxy_worker.cancel()
+            self._proxy_worker.wait(5000)
         for tw in list(self._thumb_workers) + list(self._frame_workers):
             tw.wait(2000)
         if self._live_worker is not None:

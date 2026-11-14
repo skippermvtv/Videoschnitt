@@ -119,7 +119,13 @@ class NavTabs(QWidget):
         self._buttons.append(btn)
         self._pages.append(widget)
         self._labels.append(text)
-        self._stack.addWidget(widget)
+        host = widget
+        if not widget.findChildren(QScrollArea):         # Seiten ohne eigenen Rollbereich: bei kleinem Fenster rollen statt das Fenster zu sprengen
+            host = QScrollArea()
+            host.setWidgetResizable(True)
+            host.setFrameShape(QFrame.Shape.NoFrame)
+            host.setWidget(widget)
+        self._stack.addWidget(host)
         if self._cur < 0:
             self.setCurrentIndex(0)
         return i

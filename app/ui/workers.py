@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QThread, Signal
 
-from ..core import exporter, frames, grade, stabilize, thumbs, tracker, transthumbs, updater, waveform
+from ..core import exporter, frames, grade, proxy, stabilize, thumbs, tracker, transthumbs, updater, waveform
 
 
 class ExportWorker(QThread):
@@ -222,3 +222,41 @@ class TransThumbWorker(QThread):
                 self.done.emit(tid, transthumbs.make_thumb(tid, name), "")
             except Exception as exc:  # noqa: BLE001
                 self.done.emit(tid, "", str(exc))
+
+
+class ProxyWorker(QThread):
+    """Erzeugt nacheinander Proxys. force=False: nur für „schwere“ Videos (größer als Full HD, HEVC, hohe Datenrate)."""
+    progress = Signal(int, int, str, float)     # (Nummer, Anzahl, Dateiname, Anteil)
+    item = Signal(str, str)                     # (Quelldatei, Proxy-Pfad)
+    done = Signal(str)                          # Zusammenfassung; Fehler stehen darin
+
+    def __init__(self, files: list[str], force: bool, parent=None):
+        super().__init__(parent)
+        self._files, self._force = list(files), force
+        self._cancel = False
+
+    def cancel(self) -> None:
+        self._cancel = True
+
+    def run(self) -> None:
+        made, errors = 0, []
+        n = len(self._files)
+        for i, f in enumerate(self._files):
+            if self._cancel:
+                break
+            try:
+                if not self._force and not proxy.is_heavy(proxy.inspect(f)):
+                    continue
+                name = f.replace("\\", "/").rsplit("/", 1)[-1]
+                out = proxy.make(f, lambda fr, i=i, name=name: self.progress.emit(i + 1, n, name, fr), lambda: self._cancel)
+                made += 1
+                self.item.emit(f, out)
+            except Exception as exc:  # noqa: BLE001
+                if not self._cancel:
+                    errors.append(f"{f.replace(chr(92), '/').rsplit('/', 1)[-1]}: {str(exc)[-160:]}")
+        msg = f"{made} Proxy(s) erstellt" if made else "Keine Proxys nötig"
+        if self._cancel:
+            msg = "Proxy-Erstellung abgebrochen"
+        if errors:
+            msg += "\n" + "\n".join(errors)
+        self.done.emit(msg)

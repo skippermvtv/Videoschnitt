@@ -11,7 +11,11 @@ DEFAULTS = {"preview_len": 8.0, "preview_height": 360, "hw_encode": False, "live
             # „Was ist neu“ (1.4.4): zuletzt gestartete Version, Fenster abschaltbar
             "last_version": "", "whatsnew_off": False,
             # eigene Tempokurven (1.4.5): [{"name": …, "points": [[Position %, Tempo], …]}]
-            "my_ramps": []}
+            "my_ramps": [],
+            # Proxys (1.5.2): große Videos automatisch als kleine Vorschau-Kopie anlegen / in der Vorschau benutzen
+            "proxy_auto": True, "proxy_use": True, "proxy_limit_gb": 20.0,
+            # Live-Vorschau-Qualität (1.5.2): Höhe in Pixeln
+            "live_height": 360}
 
 
 def clean_ui(raw: dict, n_lanes: int, n_tabs: int, max_zoom: float) -> dict:

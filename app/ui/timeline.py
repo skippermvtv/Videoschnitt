@@ -374,8 +374,9 @@ class Timeline(QWidget):
 
         # Videoclips (V1)
         y = self._lane_y(0)
+        starts = proj.clip_starts()
         for i, c in enumerate(proj.clips):
-            t0 = proj.clip_start(i)
+            t0 = starts[i]
             r = QRectF(self._x(t0) + 1, y, max(6.0, c.length / span * avail - 2), V_H)
             self._vrects.append(r)
             p.setBrush(QColor(_COLORS[i % len(_COLORS)]))
@@ -672,8 +673,7 @@ class Timeline(QWidget):
         for k in range(len(self._project.effects)):
             if k != skip_fx:
                 pts += list(self._project.fx_span(k))
-        for i, c in enumerate(self._project.clips):
-            t = self._project.clip_start(i)
+        for i, (c, t) in enumerate(zip(self._project.clips, self._project.clip_starts())):
             pts += [t, t + c.length]
         for j, o in enumerate(self._project.audio_clips):
             if j != skip:
@@ -770,17 +770,18 @@ class Timeline(QWidget):
             t = self._t_at(pos.x())
             drop = 0
             others = [i for i in range(len(self._project.clips)) if i != d["idx"]]
+            starts = self._project.clip_starts()
             for i in others:
-                if self._project.clip_start(i) + self._project.clips[i].length / 2 < t:
+                if starts[i] + self._project.clips[i].length / 2 < t:
                     drop += 1
             d["drop"] = drop
             if not others:
                 self._drop_t = -1.0
             elif drop < len(others):
-                self._drop_t = self._project.clip_start(others[drop])
+                self._drop_t = starts[others[drop]]
             else:
                 j = others[-1]
-                self._drop_t = self._project.clip_start(j) + self._project.clips[j].length
+                self._drop_t = starts[j] + self._project.clips[j].length
         self.update()
 
     def _move_overlay(self, d: dict, pos) -> None:
@@ -899,8 +900,9 @@ class Timeline(QWidget):
         if self._project is None or len(self._project.clips) < 2:
             return -1
         best, dist = -1, 1e18
+        starts = self._project.clip_starts()
         for i in range(len(self._project.clips) - 1):
-            b = self._project.clip_start(i) + self._project.clips[i].length
+            b = starts[i] + self._project.clips[i].length
             if abs(b - t) < dist:
                 best, dist = i, abs(b - t)
         return best
@@ -909,8 +911,8 @@ class Timeline(QWidget):
         """Einfügeposition in der Clip-Reihenfolge für ein Ablegen bei der Zeit t (vor/nach der Mitte eines Clips)."""
         if self._project is None:
             return 0
-        for i, c in enumerate(self._project.clips):
-            if t < self._project.clip_start(i) + c.length / 2:
+        for i, (c, st) in enumerate(zip(self._project.clips, self._project.clip_starts())):
+            if t < st + c.length / 2:
                 return i
         return len(self._project.clips)
 

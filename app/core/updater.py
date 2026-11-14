@@ -98,6 +98,10 @@ def installer_args(path: Path | str, log: Path | str | None = None) -> list[str]
     return args
 
 
+BLOCK_HINT = ("Meldet Windows beim Installieren „Fehler 4551“ (Anwendungssteuerungsrichtlinie), blockiert Smart App Control die noch "
+              "unsignierte Setup-Datei. Lösung: Windows-Sicherheit → App- & Browsersteuerung → Smart App Control → Aus.")
+
+
 def launch_installer(path: Path) -> None:
     """Startet die Setup.exe (Windows). Das Programm sollte danach beendet werden."""
     if os.name != "nt":

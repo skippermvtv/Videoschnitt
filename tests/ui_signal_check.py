@@ -1159,6 +1159,206 @@ assert _r2 is not None and os.path.isfile(os.path.join(_cd, "t.zip"))
 assert win.run_collect(os.path.join(_cd, "x", "y", "ziel"), False, "T", show_progress=False) is not None
 no_errors("1.5.1: Projekt sammeln")
 print("OK  1.5.1: Projekt sammeln")
+# 1.5.2: Proxys und Zwischenspeicher
+import app.ui.main_window as _mw52
+from app.core import proxy as _px52
+_started = []
+import tempfile as _tf52
+_vid52 = os.path.join(_tf52.mkdtemp(prefix="fate_px_"), "Film.mp4")
+open(_vid52, "wb").write(b"x")
+_keep_path = win.project.clips[0].path
+win.project.clips[0].path = _vid52
+
+
+class _FakeSig:
+    def __init__(self):
+        self.cb = []
+
+    def connect(self, f):
+        self.cb.append(f)
+
+
+class _FakeProxyWorker:
+    def __init__(self, files, force, parent=None):
+        self.files, self.force = list(files), force
+        self.progress, self.item, self.done = _FakeSig(), _FakeSig(), _FakeSig()
+        _started.append(self)
+
+    def start(self):
+        pass
+
+    def cancel(self):
+        self.cancelled = True
+
+    def wait(self, ms=0):
+        return True
+
+
+_RealPW = _mw52.ProxyWorker
+_mw52.ProxyWorker = _FakeProxyWorker
+win._proxy_worker = None
+win._proxy_queue = []
+win._proxy_schedule([_vid52, _vid52, "/gibt/es/nicht.mp4"], force=False)
+assert len(_started) == 1 and _started[0].files == [_vid52] and _started[0].force is False, [w.files for w in _started]
+win._proxy_schedule([_vid52], force=True)                                     # läuft schon einer: wartet in der Schlange
+assert len(_started) == 1 and win._proxy_queue == [(_vid52, True)], win._proxy_queue
+win._on_proxy_done("1 Proxy(s) erstellt")
+assert len(_started) == 2 and _started[1].force is True and win._proxy_queue == [], "nächster Auftrag startet"
+win._on_proxy_done("Keine Proxys nötig")
+assert win._proxy_worker is None
+# Medienliste zeigt den Proxy
+win.media[_vid52] = next(iter(win.media.values()))
+class _It52:
+    def __init__(self, text, path):
+        self._t, self._p = text, path
+
+    def text(self):
+        return self._t
+
+    def setText(self, t):
+        self._t = t
+
+    def data(self, role):
+        return self._p
+
+
+class _ML52:
+    def __init__(self, items):
+        self.items = items
+
+    def count(self):
+        return len(self.items)
+
+    def item(self, i):
+        return self.items[i]
+
+
+_ml_keep = win.media_list
+win.media_list = _ML52([_It52("v.mp4\n0:05, 64x64", _vid52)])
+win._on_proxy_item(_vid52, "/x/p.mp4")
+assert "Proxy ✓" in win.media_list.item(0).text()
+win._on_proxy_item(_vid52, "/x/p.mp4")
+assert win.media_list.item(0).text().count("Proxy") == 1, "nur einmal anhängen"
+win.media_list = _ml_keep
+# Player-Quelle und Vorschau-Projekt
+_orig_exist = _px52.existing
+_px52.existing = lambda src: "/cache/p.mp4" if src == _vid52 else ""
+win._proxy_use = True
+assert win._play_source(_vid52) == "/cache/p.mp4" and win._play_source("/anderes.mp4") == "/anderes.mp4"
+assert win._preview_project().clips[0].path == "/cache/p.mp4" and win.project.clips[0].path == _vid52, "Vorschau-Kopie, Original unverändert"
+win._proxy_use = False
+assert win._play_source(_vid52) == _vid52 and win._preview_project() is win.project
+_px52.existing = _orig_exist
+win.project.clips[0].path = _keep_path
+# Schalter speichern
+win.set_proxy_auto(False)
+win.set_proxy_use(True)
+from app.core import settings as _st52
+assert _st52.load()["proxy_auto"] is False and _st52.load()["proxy_use"] is True
+win.set_proxy_auto(True)
+assert _st52.load()["proxy_auto"] is True
+# Zwischenspeicher-Fenster
+cdlg = win.build_cache_dialog()
+assert set(cdlg._boxes) == {"proxies", "preview", "stab", "wave", "thumbs"} and not cdlg._boxes["proxies"].isChecked()
+cdlg._clear()
+assert cdlg._freed >= 0
+_mw52.ProxyWorker = _RealPW
+win._proxy_worker = None
+win._proxy_queue = []
+no_errors("1.5.2: Proxys und Zwischenspeicher")
+print("OK  1.5.2: Proxys und Zwischenspeicher")
+# 1.5.2: Live-Vorschau-Qualität
+assert win._live_height() in (180, 270, 360, 540, 720)
+win.cmb_live_q.setCurrentIndex(max(0, win.cmb_live_q.findData(540)))
+assert win._live_height() == 540, win._live_height()
+win.cmb_live_q.setCurrentIndex(max(0, win.cmb_live_q.findData(360)))
+assert win._live_height() == 360
+no_errors("1.5.2: Live-Vorschau-Qualität")
+print("OK  1.5.2: Live-Vorschau-Qualität")
+# 1.5.3: Live-Vorschau schaltet am Ende eines Abschnitts zum nächsten weiter (EndOfMedia UND Positions-Signal)
+import app.core.exporter as _ex153  # noqa: E402
+_QMP = mw.QMediaPlayer
+_PS, _MS = _QMP.PlaybackState, _QMP.MediaStatus
+
+
+class _FP153:
+    def __init__(self):
+        self.state, self.pos, self.src = _PS.StoppedState, 0, None
+    def playbackState(self): return self.state
+    def play(self): self.state = _PS.PlayingState
+    def pause(self): self.state = _PS.PausedState
+    def stop(self): self.state = _PS.StoppedState
+    def position(self): return self.pos
+    def setPosition(self, p): self.pos = p
+    def setSource(self, u): self.src = u
+
+
+class _TL153:
+    playhead = 0.0
+    def set_playhead(self, t): self.playhead = t
+
+
+class _FW153:
+    def __init__(self, cmd, tot, parent=None):
+        self.cmd = cmd
+        self.done = types.SimpleNamespace(connect=lambda f: setattr(self, "cb", f))
+    def start(self):
+        Path(self.cmd[-1]).write_bytes(b"x")
+        self.cb("")
+    def cancel(self): pass
+
+
+_sv153 = {k: getattr(win, k) for k in ("player", "timeline", "project", "_live_on", "_live_timer", "_live_path", "_cur_path",
+                                       "_live_next_ready", "_live_playing", "_live_advanced", "_live_worker", "_preview_path")}
+_sv_mod = (mw.ExportWorker, mw.QUrl, _ex153.build_command, mw.prevcache.cache_dir)
+_tmp153 = Path(tempfile.mkdtemp(prefix="live153_"))
+try:
+    from app.core.project import Clip as _Clip153, Project as _Project153
+    mw.ExportWorker = _FW153
+    mw.QUrl = types.SimpleNamespace(fromLocalFile=lambda p: p)
+    _ex153.build_command = lambda p, o, **k: (["ffmpeg", o], 1.0, str(_tmp153 / "tmpx"))
+    mw.prevcache.cache_dir = lambda: _tmp153
+    win.project = _Project153(format_id="youtube_16_9", export_id="fast_draft", layout="fill")
+    win.project.clips = [_Clip153(str(vid), 20.0, has_audio=False, width=640, height=360)]
+    win.player, win.timeline = _FP153(), _TL153()
+    win._live_on, win._live_timer = True, types.SimpleNamespace(start=lambda *a: None, stop=lambda: None)
+    win._live_path, win._cur_path, win._live_next_ready, win._live_worker, win._live_advanced = "", "", None, None, ""
+    win.player.state = _PS.PlayingState
+    win._live_request()
+    first = win._live_path
+    assert first and win._live_start_t == 0.0 and win._live_len == 6.0, (first, win._live_start_t, win._live_len)
+    win._on_media_status(_MS.LoadedMedia)
+    for pos in (500, 2000, 3000, 4000):
+        win.player.pos = pos
+        win._on_position(pos)
+    assert win._live_next_ready and abs(win._live_next_ready[0] - 6.0) < 0.01, win._live_next_ready
+    # Weg 1: EndOfMedia
+    win.player.state = _PS.StoppedState
+    win._live_shown_at = 0.0
+    win._on_media_status(_MS.EndOfMedia)
+    assert abs(win._live_start_t - 6.0) < 0.01 and win._live_path != first, "kein Weiterschalten nach EndOfMedia"
+    # Weg 2: nur das Positions-Signal (kein EndOfMedia)
+    win.timeline.playhead = 6.0
+    win.player.state = _PS.PlayingState
+    seg2 = win._live_path
+    win._live_shown_at = 0.0
+    win._on_media_status(_MS.LoadedMedia)
+    for pos in (500, 3000, 5990):
+        win.player.pos = pos
+        win._on_position(pos)
+    assert abs(win._live_start_t - 12.0) < 0.01 and win._live_path != seg2, f"Positions-Signal schaltete nicht weiter: {win._live_start_t}"
+    # spätes Ende-Signal direkt nach dem Umschalten darf nicht noch einen Abschnitt überspringen
+    win.player.state = _PS.StoppedState
+    win._on_media_status(_MS.EndOfMedia)
+    assert abs(win._live_start_t - 12.0) < 0.01, f"Abschnitt übersprungen: {win._live_start_t}"
+finally:
+    mw.ExportWorker, mw.QUrl, _ex153.build_command, mw.prevcache.cache_dir = _sv_mod
+    for _k, _v in _sv153.items():
+        setattr(win, _k, _v)
+    import shutil as _sh153
+    _sh153.rmtree(_tmp153, ignore_errors=True)
+no_errors("1.5.3: Live-Weiterschalten")
+print("OK  1.5.3: Live-Weiterschalten")
 no_errors("1.5.1: Mehrfachauswahl")
 print("OK  1.5.1: Mehrfachauswahl")
 print("Signal-Prüfung OK")

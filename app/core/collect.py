@@ -125,7 +125,7 @@ def collect(project: Project, target: str, as_zip: bool = False, name: str = "Pr
     for path, setter in _refs(p2):
         if path in names:
             setter(names[path])
-    text = p2.to_json()
+    text = p2.to_json(indent=2)
 
     done = 0
 

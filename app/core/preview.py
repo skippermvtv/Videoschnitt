@@ -9,6 +9,19 @@ from pathlib import Path
 from .project import Project
 
 PREVIEW_LENGTHS = [(8.0, "8 Sekunden"), (20.0, "20 Sekunden"), (60.0, "1 Minute"), (0.0, "Bis zum Ende")]
+LIVE_QUALITIES = [(180, "Schnell (180p)"), (270, "Leicht (270p)"), (360, "Normal (360p)"), (540, "Scharf (540p)"), (720, "Voll (720p)")]
+LIVE_DEFAULT = 360
+
+
+def clean_live_height(v) -> int:
+    """Gespeicherter Wert → erlaubte Live-Höhe (alles Ungültige wird zu 360)."""
+    try:
+        h = int(v)
+    except (TypeError, ValueError):
+        return LIVE_DEFAULT
+    return h if h in {q for q, _ in LIVE_QUALITIES} else LIVE_DEFAULT
+
+
 PREVIEW_QUALITIES = [(240, "Sehr schnell (240p)"), (360, "Schnell (360p)"), (540, "Normal (540p)"), (720, "Gut (720p)")]
 
 

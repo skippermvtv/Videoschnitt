@@ -901,6 +901,49 @@ def main() -> int:
         _r56 = win.run_collect(os.path.join(_d55, "t.zip"), True, "T")
         assert _r56 is not None and os.path.isfile(os.path.join(_d55, "t.zip"))
         assert win.act_collect.text().startswith("Projekt sammeln")
+    with section("Proxys und Zwischenspeicher (echter FFmpeg, echter Hintergrundauftrag)"):
+        import time as _t58
+        from app.core import cache as _cache58, proxy as _proxy58
+        _src58 = win.project.clips[0].path
+        _cache58.clear(["proxies"])
+        assert _proxy58.existing(_src58) == ""
+        win.make_proxies()
+        _t0 = _t58.time()
+        while (win._proxy_worker is not None or win._proxy_queue) and _t58.time() - _t0 < 150:
+            QApplication.processEvents()
+            _t58.sleep(0.05)
+        assert win._proxy_worker is None, "Proxy-Auftrag wurde nicht fertig"
+        _pr58 = _proxy58.existing(_src58)
+        assert _pr58, "Proxy wurde nicht erzeugt"
+        win._proxy_use = True
+        assert win._play_source(_src58) == _pr58
+        assert win._preview_project().clips[0].path == _pr58 and win.project.clips[0].path == _src58
+        win._cur_path = ""
+        win._open_media(_src58, 0, None, autoplay=False)                  # Player lädt den Proxy, merkt sich aber das Original
+        assert win._cur_path == _src58
+        _dlg58 = win.build_cache_dialog()
+        assert "Proxys" in _dlg58._boxes["proxies"].text()
+        _dlg58._boxes["proxies"].setChecked(True)
+        _dlg58._clear()
+        assert _proxy58.existing(_src58) == "", "Leeren entfernt den Proxy"
+        _dlg58.deleteLater()
+        win.set_proxy_use(False)
+        win.set_proxy_use(True)
+    with section("Live-Vorschau-Qualität"):
+        assert win.cmb_live_q.count() == 5
+        win.cmb_live_q.setCurrentIndex(win.cmb_live_q.findData(540))
+        assert win._live_height() == 540
+        win.cmb_live_q.setCurrentIndex(win.cmb_live_q.findData(360))
+        assert win._live_height() == 360
+    with section("Fenstergröße passt auf kleine Bildschirme"):
+        from PySide6.QtGui import QGuiApplication
+        av = QGuiApplication.primaryScreen().availableGeometry()
+        assert win.height() <= av.height(), f"Fenster {win.height()} px hoch, Bildschirm {av.height()} px"
+        for i in range(win.tabs.count()):                     # jeder Reiter darf höchstens bis zur Bildschirmhöhe wachsen
+            win.tabs.setCurrentIndex(i)
+            app.processEvents()
+            assert win.minimumSizeHint().height() <= 800, f"Reiter {win.tabs.tabText(i)}: Mindesthöhe {win.minimumSizeHint().height()} px"
+        win.tabs.setCurrentIndex(0)
     with section("Ton verbessern"):
         # Ton verbessern
         win._select_clip(0)

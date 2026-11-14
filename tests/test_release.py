@@ -9,6 +9,7 @@ sys.path.insert(0, str(ROOT))
 from app.core import effects as fx  # noqa: E402
 from app.core.helptext import SHORTCUTS, STEPS, help_html  # noqa: E402
 from app import version  # noqa: E402
+from app.core import updater  # noqa: E402
 
 fails = []
 
@@ -39,6 +40,8 @@ print("OK  Symbol")
 
 # Hilfe
 h = help_html()
+check("4551" in updater.BLOCK_HINT and "Smart App Control" in updater.BLOCK_HINT, "Update-Hinweis")
+check("4551" in h and "Smart App Control" in h, "Hilfe erklärt Fehler 4551")
 for word in ("Importieren", "Exportieren", "Untertitel", "Strg+Z", "Vorschau", "Ton"):
     check(word in h, f"Hilfe erwähnt '{word}' nicht")
 check(len(STEPS) >= 8 and len(SHORTCUTS) >= 6, "Hilfe zu kurz")

@@ -1,11 +1,33 @@
 # Änderungen
 
+## 1.5.4
+Allgemeine Optimierung. Gemessen wurde mit den Kernmodulen (ohne Oberfläche); die Werte gelten für meinen Test-Rechner, auf deinem PC fallen sie anders aus.
+- **Timeline bei vielen Clips:** Die Startzeiten aller Clips werden jetzt in einem Durchlauf berechnet statt für jeden Clip einzeln (vorher wuchs der Aufwand quadratisch). Bei 300 Clips: 23 ms → unter 1 ms je Berechnung; das betrifft Zeichnen der Timeline, Ziehen von Clips, Einrasten und Ablegen von Medien.
+- **Schnelleres Mitschreiben des Projektstands:** Der Projektstand für Rückgängig, Änderungserkennung und Vorschau-Schlüssel wird kompakt und etwa 40 % schneller erzeugt (300 Clips: 4,2 → 2,5 ms, alle 0,25 s) und belegt rund 25 % weniger Speicher in der Rückgängig-Liste. Gespeicherte Projektdateien bleiben eingerückt und lesbar, das Format ist unverändert.
+- **Import mehrerer Dateien:** Die Dateien werden gleichzeitig eingelesen statt nacheinander (20 Dateien: 0,8 → 0,4 s auf 2 Kernen; auf Windows mit Virenscanner meist mehr Gewinn). Gilt auch für Bild-in-Bild.
+- Neuer Test `test_speed154.py` (gleicher Inhalt wie vorher, Reihenfolge und Fehlermeldungen beim Import, Start der Clips).
+- Hinweis: Das Zeichnen und Verhalten der Oberfläche mit echtem Qt prüft nur der UI-Start-Test auf GitHub. Die Auswirkung auf deinem PC (Ruckeln bei langen Projekten) habe ich nicht gemessen.
+
+## 1.5.3
+- **Fenster passt auf den Bildschirm:** Die Reiter (Format, Clip, Effekte, Text, Titel, Übergänge, Split, Medien) rollen jetzt, wenn der Platz knapp ist, statt das Fenster über den Bildschirmrand hinaus zu vergrößern. Beim Start ist das Fenster nie größer als der nutzbare Bildschirm.
+- **Live-Vorschau hörte nach 6 Sekunden auf:** Das Weiterschalten zum nächsten 6-Sekunden-Abschnitt wird jetzt zusätzlich über die Abspielposition ausgelöst (nicht nur über das „Ende“-Signal des Players), ein doppeltes oder verspätetes Ende-Signal überspringt keinen Abschnitt mehr. Scheitert das Weiterschalten trotzdem, steht der Grund im Protokoll (Hilfe → Diagnose).
+- Neue Prüfungen: Weiterschalten der Live-Vorschau (beide Wege, kein Überspringen) und Fenster-/Reiterhöhe im UI-Start-Test.
+- Hinweis: Das Verhalten mit echtem Qt prüft nur der UI-Start-Test auf GitHub; die Ursache des 6-Sekunden-Stopps ließ sich ohne echtes Qt nicht eindeutig nachstellen.
+
+## 1.5.2
+- **Proxys für flüssige Vorschau:** Große Videos (über Full HD, HEVC/AV1/ProRes oder sehr hohe Datenrate) bekommen beim Import automatisch eine kleine Vorschau-Kopie (höchstens 720p, gleiche Länge, mit Ton), die im Hintergrund entsteht. Player, Live-Vorschau und „Vorschau ab Abspielkopf“ benutzen den Proxy, der **Export nimmt immer das Original**. Die Medienliste zeigt „Proxy ✓“. Clips mit Stabilisierung behalten in der Vorschau das Original. Datei-Menü: „Proxys für alle Videos im Projekt erstellen …“, außerdem Schalter zum automatischen Erstellen und zum Benutzen.
+- **Live-Vorschau-Qualität** (Reiter Format → „Vorschau und Leistung“): 180p bis 720p statt bisher fest höchstens 360p. Mit Proxys bleiben auch 540p/720p flüssig.
+- **Zwischenspeicher verwalten** (Datei-Menü): zeigt die Größe von Proxys, Vorschau-Videos, Stabilisierungs-Analysen, Wellenformen und Vorschaubildern und leert die gewählten. Proxys werden beim Start auf eine einstellbare Obergrenze (Standard 20 GB) begrenzt; die am längsten ungenutzten fliegen zuerst raus. Standbilder, Spracherkennung, Schriften und Vorlagen werden nie angefasst.
+- Neue Tests: `test_proxy.py` (echtes FFmpeg, 4K → 720p), `test_cache.py`, `test_livequality.py`; erweiterte Fenster- und Oberflächenprüfungen.
+- Hinweis: Proxys sparen Rechenzeit bei der Vorschau, sehen aber etwas weicher aus als das Original. Bei Schärfe-Fragen (Fokus, Chroma-Key) im Vorschaubild bitte Proxys kurz ausschalten oder das Original ansehen.
+
 ## 1.5.1
 - **Mehrfachauswahl** in der Timeline: Strg- oder Umschalt-Klick fügt einen Block zur Auswahl hinzu oder nimmt ihn heraus; mit der Maus auf leerer Fläche einen Rahmen aufziehen (mit Strg/Umschalt wird zur bisherigen Auswahl hinzugefügt). Die gewählten Blöcke lassen sich gemeinsam löschen (Entf), duplizieren (Strg+D) und – Bild-in-Bild, freie Audioblöcke und Effekt-Blöcke – gemeinsam verschieben. Clips der Hauptspur folgen weiter der Reihenfolge und werden nur mit gelöscht/dupliziert. Esc hebt die Auswahl auf.
 - **Lücken schließen:** „Löschen und Lücke schließen“ (Strg+Entf, Menü Bearbeiten) löscht Clips und rückt alles Spätere nach – auf Wunsch auch Bild-in-Bild, Ton und Effekte (Haken im Menü). Blöcke, die ganz im gelöschten Stück lagen, entfallen. „Alle Lücken auf den Zusatzspuren schließen“ schließt leere Stellen zwischen Blöcken derselben Spur (Bild-in-Bild, je Audiospur, Effekte); der erste Block jeder Spur bleibt stehen, Überlappungen bleiben.
 - **Standbild einfügen** (Bearbeiten, Strg+Umschalt+F): hält das Bild unter dem Abspielkopf 0,5–10 s an. Der Clip wird dort geteilt und ein Bild-Clip eingefügt, der Bildkorrektur, Drehen/Spiegeln, Zuschnitt und Chroma-Key des Clips übernimmt. Funktioniert auch bei Tempo, Rückwärts und getrenntem Ton.
 - **YouTube-Kapitel** (Bearbeiten → Marker → „YouTube-Kapitel für die Beschreibung …“): macht aus benannten Markern eine Liste „0:00 Name“ zum Kopieren. Prüft die YouTube-Regeln (bei 0:00 beginnen, mindestens drei Kapitel, jedes mindestens 10 Sekunden) und ergänzt ein fehlendes 0:00-Kapitel mit wählbarem Namen.
 - **Projekt sammeln** (Datei-Menü): kopiert alle benutzten Dateien (Videos, Bilder, Musik, Bild-in-Bild, LUTs, Logo, Hintergrund, eigene Schriften) in einen Ordner oder eine ZIP-Datei samt Projektdatei. Gleich benannte Dateien aus verschiedenen Ordnern werden umbenannt, fehlende übersprungen und gemeldet. Das gesammelte Projekt nutzt relative Pfade („Medien/…“) und funktioniert nach dem Umzug auf einen anderen Rechner; die ZIP muss dort zuerst entpackt werden.
+- **Build vorbereitet für Signierung** (gegen die Windows-Sperre „Fehler 4551“ durch Smart App Control): Der Build signiert Programmdateien samt FFmpeg und die Setup.exe, sobald ein Zertifikat hinterlegt ist. Der alte Signier-Schritt hätte nie ausgelöst und ist ersetzt. Anleitung in `SIGNIERUNG.md`. Ohne Zertifikat ändert sich nichts. Das Update-Fenster und die Hilfe erklären „Fehler 4551“ und den Weg über Smart App Control.
 - Neue Tests: `test_selection.py`, `test_gaps.py`, `test_freeze.py` (echtes FFmpeg), `test_chapters.py`, `test_collect.py`; erweiterte Timeline-, Signal- und Oberflächenprüfungen.
 - Nicht enthalten: Proxy-Dateien für flüssige Vorschau (kommt in 1.5.2), automatisches Hochkant.
 

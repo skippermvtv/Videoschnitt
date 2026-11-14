@@ -36,6 +36,8 @@ STEPS = [
 ]
 
 TIPS = [
+    "Proxys: Große Videos (über Full HD, HEVC) bekommen beim Import automatisch eine kleine Vorschau-Kopie, damit Abspielen und Live-Vorschau flüssig bleiben. Der Export nimmt immer das Original. Im Datei-Menü: Proxys für alle Videos erstellen, automatisch ein/aus, in der Vorschau benutzen, und „Zwischenspeicher verwalten“ zum Aufräumen.",
+    "Update bleibt hängen („Fehler 4551“): Das Setup ist noch nicht digital signiert, deshalb blockiert Windows 11 mit Smart App Control es. Windows-Sicherheit → App- & Browsersteuerung → Smart App Control → Aus (lässt sich laut Microsoft später wieder einschalten). Der normale Virenschutz bleibt aktiv.",
     "Farbe: Im Reiter „Bild“ gibt es seit 1.3 drei Farbräder (Schatten, Mitten, Lichter – ziehen = Farbstich, Doppelklick = zurück), Kurven (Klick = Punkt, Rechtsklick = löschen) und eine LUT (.cube) mit Stärke-Regler.",
     "Greenscreen: Als Bild-in-Bild hinzufügen, im Reiter „Bild-in-Bild“ „Chroma-Key“ einschalten (Grün/Blau oder eigene Farbe) und „Als Vollbild darüberlegen“ wählen. Das Hauptvideo darunter ist der neue Hintergrund.",
     "Effekte: aus der Liste auf die Spur „FX Effekte“ oben in der Timeline ziehen (oder doppelklicken). Block verschieben = anderer Zeitpunkt, Rand ziehen = Länge ändern, Entf = löschen. Es sind beliebig viele Blöcke möglich, auch vom selben Effekt.",
