@@ -98,13 +98,36 @@ class TagList(QListWidget):
         return md
 
 
+class _FullscreenHost(QWidget):
+    """Schwarzes Vollbild-Fenster, in das das Player-Bild zeitweise umzieht (statt QVideoWidget.setFullScreen, das das Bild
+    nach dem Beenden als eigenes Fenster zurückließ)."""
+    closed = Signal()
+
+    def __init__(self, video: QWidget):
+        super().__init__(None, Qt.WindowType.Window)
+        self.setWindowTitle("FATE VIDEOSCHNITT – Vollbild")
+        self.setStyleSheet("background: black;")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(video)
+
+    def closeEvent(self, ev):  # noqa: N802
+        self.closed.emit()
+        ev.accept()
+
+
 class PreviewVideo(QVideoWidget):
     """Player-Bild: Doppelklick = Vollbild; im Vollbild startet/stoppt Klick oder Leertaste die Wiedergabe.
-    Beenden: Esc, F11, Doppelklick, rechte Maustaste oder die Schaltfläche „✕ Vollbild beenden“ (erscheint bei Mausbewegung)."""
+    Beenden: Esc, F11, Doppelklick, rechte Maustaste oder die Schaltfläche „✕ Vollbild beenden“ (erscheint bei Mausbewegung).
+    Das Bild zieht fürs Vollbild in ein eigenes Fenster um und kehrt danach an seinen Platz im Programm zurück."""
     toggle_requested = Signal()
+    fullscreen_changed = Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._host: _FullscreenHost | None = None
+        self._home: QStackedWidget | None = None
+        self._home_index = 0
         self.setMouseTracking(True)
         self._exit_btn = QPushButton("✕  Vollbild beenden (Esc)", self)
         self._exit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -116,33 +139,58 @@ class PreviewVideo(QVideoWidget):
         self._hide_timer.setSingleShot(True)
         self._hide_timer.setInterval(2500)
         self._hide_timer.timeout.connect(self._exit_btn.hide)
-        self.fullScreenChanged.connect(self._on_fullscreen_changed)
 
     # -- Vollbild
+    def is_fs(self) -> bool:
+        return self._host is not None
+
     def enter_fullscreen(self) -> None:
-        self.setFullScreen(True)
+        if self._host is not None:
+            return
+        home = self.parentWidget()
+        if not isinstance(home, QStackedWidget):
+            return
+        self._home, self._home_index = home, home.indexOf(self)
+        home.removeWidget(self)
+        host = _FullscreenHost(self)
+        host.closed.connect(self.leave_fullscreen)
+        self._host = host
+        host.showFullScreen()
+        self.show()
         self._grab_focus()
         QTimer.singleShot(150, self._grab_focus)           # manche Treiber geben den Fokus erst nach dem Umschalten
+        self._show_exit_button()
+        self.fullscreen_changed.emit(True)
 
     def leave_fullscreen(self) -> None:
-        if self.isFullScreen():
-            self.setFullScreen(False)
+        host, self._host = self._host, None
+        if host is None:
+            return
+        self._hide_timer.stop()
+        self._exit_btn.hide()
+        try:
+            host.closed.disconnect(self.leave_fullscreen)
+        except (RuntimeError, TypeError):
+            pass
+        if host.layout() is not None:
+            host.layout().removeWidget(self)
+        home = self._home
+        if home is not None:
+            home.insertWidget(min(self._home_index, home.count()), self)
+            home.setCurrentWidget(self)
+        self.show()
+        host.close()
+        host.deleteLater()
+        self.fullscreen_changed.emit(False)
 
     def _grab_focus(self) -> None:
-        if self.isFullScreen():
-            self.raise_()
-            self.activateWindow()
+        if self._host is not None:
+            self._host.raise_()
+            self._host.activateWindow()
             self.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
 
-    def _on_fullscreen_changed(self, full: bool) -> None:
-        self._hide_timer.stop()
-        if full:
-            self._show_exit_button()
-        else:
-            self._exit_btn.hide()
-
     def _show_exit_button(self) -> None:
-        if not self.isFullScreen():
+        if self._host is None:
             return
         self._exit_btn.adjustSize()
         self._exit_btn.move(max(0, self.width() - self._exit_btn.width() - 20), 20)
@@ -152,18 +200,18 @@ class PreviewVideo(QVideoWidget):
 
     # -- Ereignisse
     def mouseMoveEvent(self, ev):  # noqa: N802
-        if self.isFullScreen():
+        if self._host is not None:
             self._show_exit_button()
         super().mouseMoveEvent(ev)
 
     def mouseDoubleClickEvent(self, ev):  # noqa: N802
-        if self.isFullScreen():
+        if self._host is not None:
             self.leave_fullscreen()
         else:
             self.enter_fullscreen()
 
     def mousePressEvent(self, ev):  # noqa: N802
-        if self.isFullScreen():
+        if self._host is not None:
             if ev.button() == Qt.MouseButton.RightButton:
                 self.leave_fullscreen()
             else:
@@ -175,7 +223,7 @@ class PreviewVideo(QVideoWidget):
         k = ev.key()
         if k == Qt.Key.Key_Space:
             self.toggle_requested.emit()
-        elif self.isFullScreen() and k in (Qt.Key.Key_Escape, Qt.Key.Key_F11, Qt.Key.Key_F):
+        elif self._host is not None and k in (Qt.Key.Key_Escape, Qt.Key.Key_F11, Qt.Key.Key_F):
             self.leave_fullscreen()
         else:
             super().keyPressEvent(ev)
@@ -272,6 +320,11 @@ class MainWindow(QMainWindow):
         self._live_timer = QTimer(self)
         self._live_timer.setSingleShot(True)
         self._live_timer.timeout.connect(self._live_fire)
+        self._want_play = False                  # der Nutzer will, dass die Vorschau durchläuft (bis er pausiert oder das Ende erreicht ist)
+        self._stall = 0
+        self._keep_timer = QTimer(self)          # Wächter: setzt die Wiedergabe fort, falls der Player an einer Nahtstelle stehen bleibt
+        self._keep_timer.setInterval(200)
+        self._keep_timer.timeout.connect(self._keep_playing_tick)
         self._thumb_workers: list = []
         self._frame_workers: list = []
         self._mask_frame_token = 0
@@ -860,7 +913,7 @@ class MainWindow(QMainWindow):
             sc.setEnabled(False)
             sc.activated.connect(self.video.leave_fullscreen)
             self._fs_keys.append(sc)
-        self.video.fullScreenChanged.connect(lambda full: [sc.setEnabled(bool(full)) for sc in self._fs_keys])
+        self.video.fullscreen_changed.connect(lambda full: [sc.setEnabled(bool(full)) for sc in self._fs_keys])
 
     # -- Titel
     def add_title(self, tid: str | None, at: float | None = None) -> None:
@@ -3156,6 +3209,7 @@ class MainWindow(QMainWindow):
 
     def _release_player(self) -> None:
         """Gibt die Datei frei, die der Player gerade geöffnet hat (stoppt die Wiedergabe), damit sie gelöscht werden kann."""
+        self._stop_keep_playing()
         try:
             self.player.stop()
             self.player.setSource(QUrl())
@@ -5105,6 +5159,7 @@ class MainWindow(QMainWindow):
             self._refresh_timeline(select=dst)
 
     def _seek_project(self, t: float) -> None:
+        self._stop_keep_playing()
         if self.view_stack.currentIndex() == 1:
             self._mask_edit_off()
         cl = self.project.clips
@@ -5191,14 +5246,77 @@ class MainWindow(QMainWindow):
         if self.view_stack.currentIndex() == 1:
             self._mask_edit_off()
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            self._want_play = False
+            self._keep_timer.stop()
             self.player.pause()
             self._live_playing = False
             return
+        if self.project.duration > 0 and self.timeline.playhead >= self.project.duration - 0.05:
+            self._seek_project(0.0)                          # am Ende: wieder von vorn
         if self._limit_ms is not None and self.player.position() >= self._limit_ms - 50 and 0 <= self.sel < len(self.project.clips):
             self.player.setPosition(int(self.project.clips[self.sel].in_pt * 1000))
+        self._want_play, self._stall = True, 0
+        self._keep_timer.start()
         self.player.play()
         if self._live_on and not (self._live_path and self._cur_path == self._live_path):
             self._live_timer.start(150)
+
+    def _stop_keep_playing(self) -> None:
+        self._want_play = False
+        self._keep_timer.stop()
+
+    def _keep_playing_tick(self) -> None:
+        """Läuft die Vorschau nicht mehr, obwohl der Nutzer sie nicht angehalten hat (Abschnittswechsel, Clipende, Ladefehler),
+        wird sie an der Abspielkopf-Position fortgesetzt – bis zum Projektende oder bis der Nutzer pausiert."""
+        if not self._want_play or not self.project.clips:
+            self._stop_keep_playing()
+            return
+        if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            self._stall = 0
+            return
+        t = self.timeline.playhead
+        if t >= self.project.duration - 0.05:
+            self._stop_keep_playing()
+            return
+        self._stall += 1
+        busy = self._pending_seek is not None or self._live_worker is not None       # Quelle lädt oder Abschnitt wird gerechnet
+        if self._stall < (25 if busy else 3):
+            return
+        self._stall = 0
+        diagnostics.log("Wiedergabe-Wächter: Vorschau stand bei %.2f s still, wird fortgesetzt (live %s, Quelle %s)", t,
+                        bool(self._live_path and self._cur_path == self._live_path), Path(self._cur_path).name if self._cur_path else "-")
+        self._resume_playback(t)
+
+    def _resume_playback(self, t: float) -> None:
+        ready = self._live_next_ready
+        if ready and ready[2] == self.project.to_json() and ready[0] - 0.06 <= t <= ready[0] + ready[3] - 0.3:
+            self._live_next_ready = None
+            self._live_show(ready[1], ready[0], ready[3], ready[2], at=t, autoplay=True)
+            return
+        if self._live_valid_for(t):
+            self.player.setPosition(int((t - self._live_start_t) * 1000))
+            self.player.play()
+            return
+        cl = self.project.clips
+        idx = len(cl) - 1
+        for i in range(len(cl)):
+            if t < self.project.clip_start(i) + cl[i].length:
+                idx = i
+                break
+        end = self.project.clip_start(idx) + cl[idx].length
+        if end - t < 0.1:                                    # Rest zu klein zum Abspielen: im nächsten Clip weitermachen
+            t = end + 0.001
+            if t >= self.project.duration - 0.05:
+                self._stop_keep_playing()
+                return
+            self._resume_playback(t)
+            return
+        c = cl[idx]
+        if is_image_path(c.path):
+            self._live_request(start=t, show=True, at=t, autoplay=True)
+            return
+        local = max(0.0, t - self.project.clip_start(idx))
+        self._open_media(c.path, int((c.in_pt + local * max(c.speed, 0.01)) * 1000), int(c.out_pt * 1000), autoplay=True)
 
     # ---------------------------------------------------------- Export/Vorschau
     def _run_job(self, cmd, total, title: str, on_done, measure: str = "") -> None:
@@ -6223,6 +6341,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         self.video.leave_fullscreen()
+        self._stop_keep_playing()
         if self._ask_on_close:
             self._save_ui()
         self._hist_timer.stop()

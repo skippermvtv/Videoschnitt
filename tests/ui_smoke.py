@@ -952,7 +952,7 @@ def main() -> int:
         for how in ("esc_video", "esc_main", "f11", "dclick", "button"):
             win._fullscreen_preview()
             app.processEvents()
-            assert win.video.isFullScreen(), f"{how}: Vollbild startet nicht"
+            assert win.video.is_fs(), f"{how}: Vollbild startet nicht"
             assert all(sc.isEnabled() for sc in win._fs_keys), f"{how}: Esc/F11 nicht aktiv im Vollbild"
             if how == "esc_video":
                 _QTestFs.keyClick(win.video, _QtFs.Key.Key_Escape)
@@ -966,9 +966,10 @@ def main() -> int:
             else:
                 win.video._exit_btn.click()
             app.processEvents()
-            assert not win.video.isFullScreen(), f"{how}: Vollbild lässt sich nicht beenden"
+            assert not win.video.is_fs(), f"{how}: Vollbild lässt sich nicht beenden"
             assert not any(sc.isEnabled() for sc in win._fs_keys), f"{how}: Esc/F11 bleiben nach dem Vollbild aktiv"
-            assert win.video.parent() is not None and not win.video.isWindow(), f"{how}: Bild hängt nicht mehr am Programm"
+            assert win.video.parentWidget() is win.view_stack and not win.video.isWindow(), f"{how}: Bild ist nicht ins Programm zurückgekehrt"
+            assert win.view_stack.currentWidget() is win.video and win.video.isVisible(), f"{how}: Bild wird nach dem Vollbild nicht angezeigt"
     with section("Text-Schnitt (Fenster, Liste, Auswahl)"):
         from PySide6.QtCore import Qt as _Qt155
         from app.core import textcut as _tc155

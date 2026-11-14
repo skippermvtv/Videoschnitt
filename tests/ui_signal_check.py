@@ -1309,7 +1309,8 @@ class _FW153:
 
 
 _sv153 = {k: getattr(win, k) for k in ("player", "timeline", "project", "_live_on", "_live_timer", "_live_path", "_cur_path",
-                                       "_live_next_ready", "_live_playing", "_live_advanced", "_live_worker", "_preview_path")}
+                                       "_live_next_ready", "_live_playing", "_live_advanced", "_live_worker", "_preview_path",
+                                       "_want_play", "_stall", "_keep_timer", "_pending_seek", "_limit_ms")}
 _sv_mod = (mw.ExportWorker, mw.QUrl, _ex153.build_command, mw.prevcache.cache_dir)
 _tmp153 = Path(tempfile.mkdtemp(prefix="live153_"))
 try:
@@ -1351,6 +1352,48 @@ try:
     win.player.state = _PS.StoppedState
     win._on_media_status(_MS.EndOfMedia)
     assert abs(win._live_start_t - 12.0) < 0.01, f"Abschnitt übersprungen: {win._live_start_t}"
+    # 1.5.5: Wächter – bleibt der Player mitten in der Wiedergabe stehen, geht es von allein weiter; Pause des Nutzers gilt
+    win._keep_timer = types.SimpleNamespace(start=lambda *a: None, stop=lambda: None)
+    win._pending_seek, win._live_worker = None, None
+    win._want_play, win._stall = True, 0
+    win.player.state = _PS.StoppedState                      # Player steht, obwohl niemand pausiert hat
+    win.timeline.playhead = win._live_start_t + 2.0
+    win._live_state = win.project.to_json()
+    win._cur_path = win._live_path
+    for _ in range(2):
+        win._keep_playing_tick()
+    assert win.player.state == _PS.StoppedState, "Wächter greift zu früh ein"
+    win._keep_playing_tick()
+    assert win.player.state == _PS.PlayingState and abs(win.player.pos - 2000) < 5, (win.player.state, win.player.pos)
+    # Playhead außerhalb des Abschnitts, nichts vorgerechnet → Original ab dort, im richtigen Clip
+    win.player.state = _PS.StoppedState
+    win._live_next_ready = None
+    win.timeline.playhead = 18.5
+    win._stall = 0
+    for _ in range(3):
+        win._keep_playing_tick()
+    assert win._cur_path == str(vid) and win._pending_seek is not None and abs(win._pending_seek - 18500) < 5, (win._cur_path, win._pending_seek)
+    assert win._limit_ms == 20000
+    # Pause durch den Nutzer: Wächter bleibt still
+    win._want_play = False
+    win.player.state = _PS.PausedState
+    for _ in range(5):
+        win._keep_playing_tick()
+    assert win.player.state == _PS.PausedState, "Wächter spielt trotz Pause weiter"
+    # Projektende: kein Weiterspielen
+    win._want_play, win._stall = True, 0
+    win.timeline.playhead = win.project.duration
+    win._keep_playing_tick()
+    assert not win._want_play
+    # Clipgrenze: Rest < 0.1 s → im nächsten Clip weiter
+    win.project.clips = [_Clip153(str(vid), 10.0, has_audio=False, width=640, height=360), _Clip153(str(vid), 10.0, has_audio=False, width=640, height=360)]
+    win._want_play, win._stall = True, 0
+    win.player.state = _PS.StoppedState
+    win.timeline.playhead = 9.97
+    win._cur_path, win._pending_seek, win._live_path = "", None, ""
+    for _ in range(3):
+        win._keep_playing_tick()
+    assert win._pending_seek is not None and win._pending_seek < 100, win._pending_seek      # Anfang des 2. Clips
 finally:
     mw.ExportWorker, mw.QUrl, _ex153.build_command, mw.prevcache.cache_dir = _sv_mod
     for _k, _v in _sv153.items():
