@@ -260,3 +260,51 @@ class ProxyWorker(QThread):
         if errors:
             msg += "\n" + "\n".join(errors)
         self.done.emit(msg)
+
+
+class UpscaleSetupWorker(QThread):
+    """Lädt Real-ESRGAN (Programm und Modelle) herunter."""
+    progress = Signal(float)
+    done = Signal(str)          # leer = Erfolg, „abgebrochen“ oder Fehlertext
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._cancel = False
+
+    def cancel(self) -> None:
+        self._cancel = True
+
+    def run(self) -> None:
+        try:
+            from ..core import upscale
+            upscale.install(progress=self.progress.emit, cancelled=lambda: self._cancel)
+            self.done.emit("")
+        except Exception as exc:  # noqa: BLE001
+            from ..core.whisper_setup import Cancelled
+            self.done.emit("abgebrochen" if isinstance(exc, Cancelled) else str(exc) or exc.__class__.__name__)
+
+
+class UpscaleWorker(QThread):
+    """Vergrößert einen Ausschnitt mit Real-ESRGAN (lange Arbeit, mit Fortschritt und Abbrechen)."""
+    progress = Signal(float, str)
+    done = Signal(str, str)     # (Ergebnisdatei, Fehlertext); bei Abbruch Fehlertext „abgebrochen“
+
+    def __init__(self, src: str, in_pt: float, out_pt: float, target_h: int, out_file: str, model_key: str, parent=None):
+        super().__init__(parent)
+        self._args = (src, in_pt, out_pt, target_h, out_file, model_key)
+        self._cancel = False
+
+    def cancel(self) -> None:
+        self._cancel = True
+
+    def run(self) -> None:
+        from ..core import upscale
+        from ..core.whisper_setup import Cancelled
+        src, a, b, h, out, model = self._args
+        try:
+            upscale.upscale_range(src, a, b, h, out, model, progress=self.progress.emit, cancelled=lambda: self._cancel)
+            self.done.emit(out, "")
+        except Cancelled:
+            self.done.emit("", "abgebrochen")
+        except Exception as exc:  # noqa: BLE001
+            self.done.emit("", str(exc) or exc.__class__.__name__)

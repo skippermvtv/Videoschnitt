@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 
 from PySide6.QtCore import QMimeData, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QKeySequence, QPixmap
+from PySide6.QtGui import QAction, QColor, QFont, QFontDatabase, QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
@@ -24,6 +24,10 @@ from PySide6.QtWidgets import (
 
 from .. import paths
 from ..core import effects as fx
+from ..core import highlights as hilite
+from ..core import upscale as upscalelib
+from ..core import textcut
+from ..core.pieces import PieceError
 from ..core import audiomix, chapters as chapterlib, cache as cachelib, collect as collectlib, proxy as proxylib, freeze as freezelib, gaps as gapslib, selection as sellib, beats as beatlib, duplicate, gif as giflib, stillframe, karaoke, markers as markerlib, scenes, silence, keypreview, loudcheck, overlaykeys, subpreview, whatsnew, diagnostics, exporter, grade as gradelib, multiexport, preview as prevcache, presets, settings, speedramp as rampmod, split as splitlib, stabilize, subtitles as subs, titles as titlelib, updater, window as projwin
 from ..core.history import History
 from ..core.fontcheck import missing_chars
@@ -38,10 +42,13 @@ from .theme import BRAND, MUTED
 from .curveeditor import SpeedCurveEditor
 from .beatdialog import BeatDialog
 from .scenedialog import SceneDialog
+from .highlightdialog import HighlightDialog
 from .silencedialog import SilenceDialog
+from .upscaledialog import UpscaleDialog
+from .textcutdialog import TextCutDialog
 from .whatsnewdialog import WhatsNewDialog
 from .timeline import FX_MIME, MEDIA_MIME, TITLE_MIME, TRANS_MIME, Timeline
-from .workers import ProxyWorker, TransThumbWorker, StabilizeWorker, TrackWorker, FrameWorker, ThumbWorker, ExportWorker, GradePreviewWorker, UpdateCheckWorker, UpdateDownloadWorker, WaveformWorker, AsrWorker, WhisperSetupWorker, DiagnoseWorker
+from .workers import ProxyWorker, TransThumbWorker, StabilizeWorker, TrackWorker, FrameWorker, ThumbWorker, ExportWorker, GradePreviewWorker, UpdateCheckWorker, UpdateDownloadWorker, WaveformWorker, AsrWorker, WhisperSetupWorker, DiagnoseWorker, UpscaleSetupWorker, UpscaleWorker
 
 VIDEO_FILTER = ("Videos und Bilder (*.mp4 *.mov *.mkv *.avi *.webm *.m4v *.wmv *.flv *.mts *.m2ts "
                 "*.jpg *.jpeg *.png *.webp *.bmp *.tif *.tiff);;Alle Dateien (*)")
@@ -92,21 +99,84 @@ class TagList(QListWidget):
 
 
 class PreviewVideo(QVideoWidget):
-    """Player-Bild: Doppelklick = Vollbild; im Vollbild startet/stoppt Klick oder Leertaste die Wiedergabe (Esc beendet)."""
+    """Player-Bild: Doppelklick = Vollbild; im Vollbild startet/stoppt Klick oder Leertaste die Wiedergabe.
+    Beenden: Esc, F11, Doppelklick, rechte Maustaste oder die Schaltfläche „✕ Vollbild beenden“ (erscheint bei Mausbewegung)."""
     toggle_requested = Signal()
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMouseTracking(True)
+        self._exit_btn = QPushButton("✕  Vollbild beenden (Esc)", self)
+        self._exit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._exit_btn.setStyleSheet("QPushButton{background:rgba(20,20,20,200);color:white;border:1px solid #888;border-radius:6px;padding:8px 14px;font-size:14px;}"
+                                     "QPushButton:hover{background:rgba(200,40,40,230);}")
+        self._exit_btn.clicked.connect(self.leave_fullscreen)
+        self._exit_btn.hide()
+        self._hide_timer = QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.setInterval(2500)
+        self._hide_timer.timeout.connect(self._exit_btn.hide)
+        self.fullScreenChanged.connect(self._on_fullscreen_changed)
+
+    # -- Vollbild
+    def enter_fullscreen(self) -> None:
+        self.setFullScreen(True)
+        self._grab_focus()
+        QTimer.singleShot(150, self._grab_focus)           # manche Treiber geben den Fokus erst nach dem Umschalten
+
+    def leave_fullscreen(self) -> None:
+        if self.isFullScreen():
+            self.setFullScreen(False)
+
+    def _grab_focus(self) -> None:
+        if self.isFullScreen():
+            self.raise_()
+            self.activateWindow()
+            self.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
+
+    def _on_fullscreen_changed(self, full: bool) -> None:
+        self._hide_timer.stop()
+        if full:
+            self._show_exit_button()
+        else:
+            self._exit_btn.hide()
+
+    def _show_exit_button(self) -> None:
+        if not self.isFullScreen():
+            return
+        self._exit_btn.adjustSize()
+        self._exit_btn.move(max(0, self.width() - self._exit_btn.width() - 20), 20)
+        self._exit_btn.show()
+        self._exit_btn.raise_()
+        self._hide_timer.start()
+
+    # -- Ereignisse
+    def mouseMoveEvent(self, ev):  # noqa: N802
+        if self.isFullScreen():
+            self._show_exit_button()
+        super().mouseMoveEvent(ev)
+
     def mouseDoubleClickEvent(self, ev):  # noqa: N802
-        self.setFullScreen(not self.isFullScreen())
+        if self.isFullScreen():
+            self.leave_fullscreen()
+        else:
+            self.enter_fullscreen()
 
     def mousePressEvent(self, ev):  # noqa: N802
         if self.isFullScreen():
-            self.toggle_requested.emit()
+            if ev.button() == Qt.MouseButton.RightButton:
+                self.leave_fullscreen()
+            else:
+                self.toggle_requested.emit()
         else:
             super().mousePressEvent(ev)
 
     def keyPressEvent(self, ev):  # noqa: N802
-        if ev.key() == Qt.Key.Key_Space:
+        k = ev.key()
+        if k == Qt.Key.Key_Space:
             self.toggle_requested.emit()
+        elif self.isFullScreen() and k in (Qt.Key.Key_Escape, Qt.Key.Key_F11, Qt.Key.Key_F):
+            self.leave_fullscreen()
         else:
             super().keyPressEvent(ev)
 
@@ -132,6 +202,10 @@ class FxTree(QTreeWidget):
         if ids:
             md.setText(FX_MIME + ids[0])
         return md
+
+
+AI_DENOISE_TIP = ("Neuronales Netz (RNNoise) gegen Lüfter, Rauschen und Brummen bei Sprache. 100 % = voll bereinigt, "
+                  "weniger mischt etwas vom Original dazu. Bei Musik oder Naturgeräuschen lieber den normalen Regler nehmen.")
 
 
 class MainWindow(QMainWindow):
@@ -605,6 +679,7 @@ class MainWindow(QMainWindow):
         self.video.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.video.toggle_requested.connect(self.toggle_play)
         self.video.setMinimumSize(360, 200)
+        self._setup_fullscreen_keys()
         self.video.setStyleSheet("background: black;")
         self.mask_canvas = MaskCanvas()
         self.mask_canvas.changed.connect(self._on_mask_canvas)
@@ -650,7 +725,7 @@ class MainWindow(QMainWindow):
         b_end.clicked.connect(lambda: self._seek_project(max(0.0, self.project.duration - 0.05)))
         b_full = QToolButton()
         b_full.setText("⛶")
-        b_full.setToolTip("Vollbild (auch Doppelklick auf das Bild; Esc beendet)")
+        b_full.setToolTip("Vollbild (auch Doppelklick auf das Bild; Esc, F11 oder Doppelklick beendet)")
         b_full.clicked.connect(self._fullscreen_preview)
         for b in (b_start, self.btn_play, b_end, b_full):
             tr.addWidget(b)
@@ -773,7 +848,19 @@ class MainWindow(QMainWindow):
     def _fullscreen_preview(self) -> None:
         if self.view_stack.currentIndex() == 1:             # Masken-Rahmen offen: erst schließen
             self._mask_edit_off()
-        self.video.setFullScreen(True)
+        self.video.enter_fullscreen()
+
+    def _setup_fullscreen_keys(self) -> None:
+        """Esc / F11 beenden das Vollbild auch dann, wenn das Bild-Fenster den Tastaturfokus nicht bekommen hat
+        (dann landet die Taste im Hauptfenster). Die Tasten sind nur im Vollbild aktiv, damit Esc in Dialogen normal bleibt."""
+        self._fs_keys = []
+        for key in ("Esc", "F11"):
+            sc = QShortcut(QKeySequence(key), self)
+            sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            sc.setEnabled(False)
+            sc.activated.connect(self.video.leave_fullscreen)
+            self._fs_keys.append(sc)
+        self.video.fullScreenChanged.connect(lambda full: [sc.setEnabled(bool(full)) for sc in self._fs_keys])
 
     # -- Titel
     def add_title(self, tid: str | None, at: float | None = None) -> None:
@@ -1507,6 +1594,8 @@ class MainWindow(QMainWindow):
         vr.addWidget(self.clip_vol_label)
         self.clip_dn, self.clip_dn_label, dnr = self._fix_slider(self._on_clip_field)
         self.clip_vc, self.clip_vc_label, vcr = self._fix_slider(self._on_clip_field)
+        self.clip_dnai, self.clip_dnai_label, dnair = self._fix_slider(self._on_clip_field)
+        self.clip_dnai.setToolTip(AI_DENOISE_TIP)
         self.clip_mute = QCheckBox("Ton stummschalten")
         self.clip_mute.toggled.connect(self._on_clip_field)
         self.clip_rev = QCheckBox("Rückwärts abspielen (nur kurze Clips)")
@@ -1517,6 +1606,7 @@ class MainWindow(QMainWindow):
         form.addRow("Geschwindigkeit", self.clip_speed)
         form.addRow("Lautstärke", vr)
         form.addRow("Rauschen entfernen", dnr)
+        form.addRow("KI-Rauschentfernung", dnair)
         form.addRow("Sprache klarer", vcr)
         form.addRow(self.clip_mute)
         self.clip_audio_note = QLabel("Der Ton dieses Clips liegt als eigener Block auf A1 (Registerkarte „Ton“).")
@@ -1654,6 +1744,10 @@ class MainWindow(QMainWindow):
         self.btn_scenes = QPushButton("An Szenenwechseln teilen …")
         self.btn_scenes.setToolTip("Findet Stellen, an denen sich das Bild stark ändert, und teilt den Clip dort. Zuerst gibt es eine Vorschau mit Zahlen.")
         self.btn_scenes.clicked.connect(lambda *_: self.split_scenes())
+        self.btn_upscale = QPushButton("KI-Hochskalieren (2K/4K) …")
+        self.btn_upscale.setToolTip("Rechnet den Clip mit Real-ESRGAN auf deiner Grafikkarte größer. Keine verlustfreie Vergrößerung, aber meist "
+                                    "schärfer als normales Hochrechnen. Langsam, zuerst 10 Sekunden testen.")
+        self.btn_upscale.clicked.connect(lambda *_: self.upscale_clip())
         form.addRow(QLabel("Schneiden"))
         form.addRow(self.btn_silence)
         form.addRow(self.btn_scenes)
@@ -1743,7 +1837,10 @@ class MainWindow(QMainWindow):
         form.addRow("Lautstärke", vr)
         self.aud_dn, self.aud_dn_label, dnr = self._fix_slider(self._on_audio_field)
         self.aud_vc, self.aud_vc_label, vcr = self._fix_slider(self._on_audio_field)
+        self.aud_dnai, self.aud_dnai_label, dnair = self._fix_slider(self._on_audio_field)
+        self.aud_dnai.setToolTip(AI_DENOISE_TIP)
         form.addRow("Rauschen entfernen", dnr)
+        form.addRow("KI-Rauschentfernung", dnair)
         form.addRow("Sprache klarer", vcr)
         form.addRow("Einblenden", self.aud_fin)
         form.addRow("Ausblenden", self.aud_fout)
@@ -2238,6 +2335,11 @@ class MainWindow(QMainWindow):
         h.setWordWrap(True)
         h.setStyleSheet(f"color: {MUTED};")
         al.addWidget(h)
+        self.btn_textcut = QPushButton("Text-Schnitt: Füllwörter und Pausen entfernen …")
+        self.btn_textcut.setToolTip("Schneidet nach dem gesprochenen Text („ähm“, doppelte Wörter, Pausen) oder nach von Hand gewählten Wörtern. "
+                                    "Braucht Untertitel mit Wortzeiten (automatisch erzeugt).")
+        self.btn_textcut.clicked.connect(lambda *_: self.text_cut())
+        al.addWidget(self.btn_textcut)
         v.addWidget(auto)
 
         st = QGroupBox("Aussehen aller Untertitel")
@@ -2476,6 +2578,8 @@ class MainWindow(QMainWindow):
         mk.addAction(act("Zum vorherigen Marker (Strg+←)", lambda: self.goto_marker(-1)))
         mk.addAction(act("Marker benennen …", self.rename_marker))
         mk.addAction(act("Alle Marker entfernen", self.clear_markers))
+        mk.addSeparator()
+        mk.addAction(act("Highlights finden (Vorschläge für Shorts) …", self.find_highlights))
         mk.addSeparator()
         mk.addAction(act("YouTube-Kapitel für die Beschreibung …", self.show_chapters))
         me.addSeparator()
@@ -3050,6 +3154,19 @@ class MainWindow(QMainWindow):
         """Projekt für Vorschau-Rechnungen (Proxys statt Originale); der Export nimmt immer self.project."""
         return proxylib.substitute(self.project) if self._proxy_use else self.project
 
+    def _release_player(self) -> None:
+        """Gibt die Datei frei, die der Player gerade geöffnet hat (stoppt die Wiedergabe), damit sie gelöscht werden kann."""
+        try:
+            self.player.stop()
+            self.player.setSource(QUrl())
+        except Exception as exc:  # noqa: BLE001
+            diagnostics.log_error("Player freigeben: %s", exc)
+        self._cur_path = ""
+        self._live_path = ""
+        self._live_next_ready = None
+        self._live_playing = False
+        QApplication.processEvents()
+
     def _forget_player_source(self) -> None:
         """Der Player soll beim nächsten Öffnen die Datei neu wählen (Proxy oder Original) – nicht mitten in der Wiedergabe."""
         if self.player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
@@ -3154,9 +3271,9 @@ class MainWindow(QMainWindow):
 
         def clear():
             keys = [k for k, cb in boxes.items() if cb.isChecked()]
+            if keys:
+                self._release_player()               # Windows sperrt Dateien, die der Player geöffnet hat (Proxy, Live-Abschnitt)
             freed = cachelib.clear(keys)
-            if "proxies" in keys:
-                self._forget_player_source()
             refresh()
             self.statusBar().showMessage(f"{cachelib.human(freed)} freigegeben.")
             dlg._freed = freed
@@ -3309,6 +3426,153 @@ class MainWindow(QMainWindow):
             return []
         return self.apply_scene_cuts(dlg.cuts)
 
+    # -- KI-Hochskalieren (1.5.5)
+    def upscale_clip(self) -> bool:
+        """Richtet Real-ESRGAN bei Bedarf ein, fragt Ziel und Modell ab und rechnet den Clip in einem Hintergrund-Thread größer."""
+        if getattr(self, "_up_worker", None) is not None:
+            self.statusBar().showMessage("Es läuft schon eine Vergrößerung.")
+            return False
+        if not (0 <= self.sel < len(self.project.clips)):
+            self.statusBar().showMessage("Zuerst einen Clip in der Timeline anklicken.")
+            return False
+        c = self.project.clips[self.sel]
+        if c.is_image:
+            self.statusBar().showMessage("Bei einem Standbild geht das nicht.")
+            return False
+        if upscalelib.find_program() is None:
+            r = QMessageBox.question(self, "KI-Hochskalieren", "Dafür lädt FATE VIDEOSCHNITT einmalig das kostenlose Real-ESRGAN (ncnn/Vulkan, "
+                                     "ca. 50 MB) von GitHub herunter. Es braucht eine Grafikkarte mit Vulkan-Unterstützung (z. B. GeForce RTX).\n\n"
+                                     "Jetzt herunterladen?")
+            if r != QMessageBox.StandardButton.Yes:
+                return False
+            self._upscale_setup(lambda: self.upscale_clip())
+            return False
+        dlg = UpscaleDialog(c, self)
+        self._upscale_dialog = dlg
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.target:
+            return False
+        return self._start_upscale(self.sel, dlg.target, dlg.model_key, dlg.test_only)
+
+    def _upscale_setup(self, then) -> None:
+        dlg = QProgressDialog("Real-ESRGAN wird geladen …", "Abbrechen", 0, 100, self)
+        dlg.setWindowTitle("KI-Hochskalieren einrichten")
+        dlg.setWindowModality(Qt.WindowModality.WindowModal)
+        dlg.setMinimumDuration(0)
+        w = UpscaleSetupWorker(self)
+        w.progress.connect(lambda f: dlg.setValue(int(f * 100)))
+        dlg.canceled.connect(w.cancel)
+
+        def done(err: str) -> None:
+            dlg.close()
+            self._up_setup_worker = None
+            if err == "abgebrochen":
+                return
+            if err:
+                diagnostics.log_error("Real-ESRGAN-Einrichtung fehlgeschlagen: %s", err)
+                QMessageBox.warning(self, "KI-Hochskalieren", f"Das Herunterladen hat nicht geklappt:\n{err}")
+                return
+            then()
+
+        w.done.connect(done)
+        self._up_setup_worker = w
+        w.start()
+
+    def _start_upscale(self, idx: int, target: int, model_key: str, test_only: bool) -> bool:
+        c = self.project.clips[idx]
+        a = c.in_pt
+        b = c.out_pt if c.out_pt > c.in_pt else c.duration
+        if test_only:
+            b = min(b, a + 10.0)
+        out = upscalelib.output_path(c.path, a, b, target, model_key)
+        dlg = QProgressDialog("Wird vorbereitet …", "Abbrechen", 0, 1000, self)
+        dlg.setWindowTitle("KI-Hochskalieren")
+        dlg.setWindowModality(Qt.WindowModality.WindowModal)
+        dlg.setMinimumDuration(0)
+        w = UpscaleWorker(c.path, a, b, target, str(out), model_key, self)
+        w.progress.connect(lambda f, t: (dlg.setLabelText(t), dlg.setValue(int(f * 1000))))
+        dlg.canceled.connect(w.cancel)
+        uid = c.uid
+
+        def done(path: str, err: str) -> None:
+            dlg.close()
+            self._up_worker = None
+            if err == "abgebrochen":
+                self.statusBar().showMessage("Vergrößerung abgebrochen.")
+                return
+            if err:
+                diagnostics.log_error("Hochskalieren fehlgeschlagen: %s", err)
+                QMessageBox.warning(self, "KI-Hochskalieren", err)
+                return
+            self.apply_upscaled(uid, path, test_only)
+
+        w.done.connect(done)
+        self._up_worker = w
+        w.start()
+        return True
+
+    def apply_upscaled(self, uid: str, path: str, as_new_clip: bool) -> bool:
+        idx = next((i for i, c in enumerate(self.project.clips) if c.uid == uid), -1)
+        if idx < 0:
+            QMessageBox.information(self, "KI-Hochskalieren", f"Der Clip ist nicht mehr in der Timeline. Die Datei liegt hier:\n{path}")
+            return False
+        try:
+            if as_new_clip:
+                second = copy.deepcopy(self.project.clips[idx])
+                second.uid = uuid.uuid4().hex[:10]
+                second.transition = ""
+                self.project.clips.insert(idx + 1, second)
+                idx += 1
+            upscalelib.apply_to_clip(self.project, idx, path)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "KI-Hochskalieren", f"Die neue Datei konnte nicht eingesetzt werden: {exc}")
+            return False
+        self._refresh_timeline(select=idx)
+        self.statusBar().showMessage("Vergrößerter Clip eingesetzt" + (" (Test als neuer Clip dahinter)" if as_new_clip else "") + ". Rückgängig mit Strg+Z.")
+        return True
+
+    def find_highlights(self) -> bool:
+        """Öffnet „Highlights finden“; bei „Als Marker setzen“ bekommt jeder Vorschlag einen Start- und einen Endmarker."""
+        if not self.project.clips:
+            self.statusBar().showMessage("Zuerst Clips in die Timeline legen.")
+            return False
+        dlg = HighlightDialog(self.project, self)
+        self._highlight_dialog = dlg
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.found:
+            return False
+        return self.apply_highlights(dlg.found)
+
+    def apply_highlights(self, found) -> bool:
+        n = hilite.apply_markers(self.project, found)
+        self._refresh_timeline()
+        self.statusBar().showMessage(f"{n} Marker für {len(found)} Highlights gesetzt. Mit Strg+→ von Marker zu Marker springen, Strg+Z macht es rückgängig.")
+        return True
+
+    def text_cut(self) -> bool:
+        """Öffnet das Fenster „Text-Schnitt“ (Füllwörter, Wiederholungen, Pausen, gewählte Wörter) für das ganze Projekt."""
+        if not textcut.words_of(self.project):
+            QMessageBox.information(self, "Text-Schnitt", "Dafür braucht es Untertitel mit Wortzeiten. Im Reiter Untertitel zuerst "
+                                    "„Untertitel automatisch erzeugen“ ausführen (Spracherkennung).")
+            return False
+        dlg = TextCutDialog(self.project, self)
+        self._textcut_dialog = dlg
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.cuts:
+            return False
+        return self.apply_text_cuts(dlg.cuts)
+
+    def apply_text_cuts(self, cuts) -> bool:
+        try:
+            res = textcut.apply(self.project, cuts)
+        except PieceError as exc:
+            QMessageBox.warning(self, "Text-Schnitt", str(exc))
+            return False
+        self._refresh_timeline(select=min(self.sel, len(self.project.clips) - 1) if self.project.clips else -1)
+        self._load_sub_list()
+        msg = f"Text-Schnitt: {res['removed']:.1f} s entfernt in {res['clips']} Clip(s). Rückgängig mit Strg+Z."
+        if res["notes"]:
+            QMessageBox.information(self, "Text-Schnitt", msg + "\n\n" + "\n".join(res["notes"]))
+        self.statusBar().showMessage(msg)
+        return True
+
     def apply_scene_cuts(self, cuts) -> list[int]:
         try:
             used = scenes.apply(self.project, self.sel, cuts)
@@ -3375,6 +3639,9 @@ class MainWindow(QMainWindow):
         self.clip_rev.setChecked(c.reverse)
         self.clip_dn.setValue(int(c.denoise))
         self.clip_vc.setValue(int(c.voice))
+        self.clip_dnai.setValue(int(c.denoise_ai))
+        self.clip_dnai.setEnabled(c.has_audio and not c.audio_detached)
+        self.clip_dnai_label.setText(self._fix_text(c.denoise_ai))
         self.clip_dn.setEnabled(c.has_audio and not c.audio_detached)
         self.clip_vc.setEnabled(c.has_audio and not c.audio_detached)
         self.clip_dn_label.setText(self._fix_text(c.denoise))
@@ -3535,6 +3802,7 @@ class MainWindow(QMainWindow):
         self.clip_vol_label.setText(f"{self.clip_vol.value()} %")
         self.clip_dn_label.setText(self._fix_text(self.clip_dn.value()))
         self.clip_vc_label.setText(self._fix_text(self.clip_vc.value()))
+        self.clip_dnai_label.setText(self._fix_text(self.clip_dnai.value()))
         self.clip_stab_label.setText(f"{self.clip_stab.value()} %" if self.clip_stab.value() else "aus")
         if self._loading or not (0 <= self.sel < len(self.project.clips)):
             return
@@ -3546,6 +3814,7 @@ class MainWindow(QMainWindow):
         c.mute = self.clip_mute.isChecked()
         if not c.audio_detached:
             c.denoise, c.voice = int(self.clip_dn.value()), int(self.clip_vc.value())
+            c.denoise_ai = int(self.clip_dnai.value())
         c.reverse = self.clip_rev.isChecked()
         c.stabilize = 0 if c.is_image else int(self.clip_stab.value())
         c.transition = str(self.clip_trans.currentData() or "")
@@ -4290,6 +4559,8 @@ class MainWindow(QMainWindow):
         self.aud_vol_label.setText(f"{int(round(a.volume * 100))} %")
         self.aud_dn.setValue(int(a.denoise))
         self.aud_vc.setValue(int(a.voice))
+        self.aud_dnai.setValue(int(a.denoise_ai))
+        self.aud_dnai_label.setText(self._fix_text(a.denoise_ai))
         self.aud_dn_label.setText(self._fix_text(a.denoise))
         self.aud_vc_label.setText(self._fix_text(a.voice))
         self.aud_fin.setValue(a.fade_in)
@@ -4304,6 +4575,7 @@ class MainWindow(QMainWindow):
         self.aud_vol_label.setText(f"{self.aud_vol.value()} %")
         self.aud_dn_label.setText(self._fix_text(self.aud_dn.value()))
         self.aud_vc_label.setText(self._fix_text(self.aud_vc.value()))
+        self.aud_dnai_label.setText(self._fix_text(self.aud_dnai.value()))
         a = self._selected_audio()
         if self._loading or a is None:
             return
@@ -4314,6 +4586,7 @@ class MainWindow(QMainWindow):
         a.speed = self.aud_speed.value()
         a.volume = self.aud_vol.value() / 100.0
         a.denoise, a.voice = int(self.aud_dn.value()), int(self.aud_vc.value())
+        a.denoise_ai = int(self.aud_dnai.value())
         a.fade_in = self.aud_fin.value()
         a.fade_out = self.aud_fout.value()
         a.loop = self.aud_loop.isChecked()
@@ -5949,6 +6222,7 @@ class MainWindow(QMainWindow):
         if not self._confirm_unsaved():
             event.ignore()
             return
+        self.video.leave_fullscreen()
         if self._ask_on_close:
             self._save_ui()
         self._hist_timer.stop()

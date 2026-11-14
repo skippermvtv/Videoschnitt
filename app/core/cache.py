@@ -74,14 +74,25 @@ def human(n: float) -> str:
 
 
 def clear(keys) -> int:
-    """Leert die gewählten Stellen; gibt die freigegebenen Bytes zurück. Dateien, die gerade benutzt werden, bleiben (Fehler werden übergangen)."""
+    """Leert die gewählten Stellen; gibt die freigegebenen Bytes zurück. Dateien, die gerade benutzt werden, bleiben (Fehler werden übergangen).
+    Windows gibt eine Datei, die der Player eben losgelassen hat, erst einen Moment später frei – darum ein zweiter Versuch."""
     want = set(keys)
     freed = 0
+    failed: list[tuple[Path, int]] = []
     for loc in locations():
         if loc.key not in want:
             continue
         for f in _files(loc):
             n = _size(f)
+            try:
+                f.unlink()
+                freed += n
+            except OSError:
+                failed.append((f, n))
+    if failed:
+        import time
+        time.sleep(0.5)
+        for f, n in failed:
             try:
                 f.unlink()
                 freed += n

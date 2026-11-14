@@ -1,5 +1,15 @@
 # Änderungen
 
+## 1.5.5
+KI-Unterstützung. Alles läuft auf deinem PC, nichts wird hochgeladen (nur Real-ESRGAN wird einmalig von GitHub geladen, wenn du es nutzt).
+- **Text-Schnitt** (Reiter Untertitel → „Text-Schnitt …“): Aus den Wortzeiten der automatischen Untertitel werden Schnitte vorgeschlagen: Füllwörter („ähm“, „äh“), doppelte Wörter („ich ich“) und Pausen zwischen Wörtern (Lücken über 4 s bleiben stehen). Zusätzlich lassen sich einzelne Wörter im Transkript markieren und entfernen. Du siehst vorher eine Liste mit Häkchen; Untertitel und Marker rücken mit. Bild-in-Bild und Ton-Blöcke auf eigenen Spuren bleiben an ihrer Zeit. Braucht Untertitel mit Wortzeiten (ab 1.5.0 automatisch).
+- **KI-Rauschentfernung** (Reiter Clip und Ton): Regler 0–100 mit dem mitgelieferten RNNoise-Modell (FFmpeg `arnndn`) gegen Lüfter, Rauschen und Brummen bei Sprache; Vorschau und Export. Im Test sank der Pegel von Rauschen um rund 11 dB.
+- **Highlights finden** (Menü Marker): bewertet Abschnitte nach Lautstärke, Sprechdichte und Schnitten und setzt Start-/Endmarker für die besten (Länge 5–180 s, 1–20 Vorschläge). Das ist eine Schätzung, kein Bildverständnis.
+- **KI-Hochskalieren** (Reiter Clip → „KI-Hochskalieren (2K/4K) …“): Real-ESRGAN (ncnn/Vulkan) rechnet den Clip auf 1440p oder 2160p. Einrichtung per Klick (Download von GitHub, ca. 50 MB), Arbeit in Stücken mit begrenztem Plattenbedarf, Fortschritt mit Restzeit-Schätzung, Abbrechen möglich. Option „Nur die ersten 10 Sekunden zum Test“ fügt das Ergebnis als neuen Clip ein. **Das ist keine verlustfreie Vergrößerung** (das Modell erfindet Details) und langsam: jedes Bild geht einzeln durch die Grafikkarte.
+- **Fehlerbehebung Vollbild-Vorschau**: Das Vollbild ließ sich nicht beenden, wenn das Bild-Fenster den Tastaturfokus nicht bekam. Jetzt beenden Esc und F11 (auch wenn die Taste im Hauptfenster landet), Doppelklick, Rechtsklick und eine Schaltfläche „✕ Vollbild beenden“ (erscheint bei Mausbewegung oben rechts) das Vollbild; beim Schließen des Programms wird es automatisch beendet.
+- Neue Tests: `test_textcut`, `test_denoise_ai`, `test_highlights`, `test_upscale` (mit Ersatzprogramm für Real-ESRGAN) und UI-Start-Test-Abschnitte für die drei Fenster.
+- **Nicht geprüft (ehrlich):** Das echte Real-ESRGAN, der Download des Pakets von GitHub (Dateiname/Adresse), die Geschwindigkeit auf deiner RTX 2080 und das Verhalten der neuen Fenster mit echtem Qt außerhalb des UI-Start-Tests. Bitte zuerst den 10-Sekunden-Test machen.
+
 ## 1.5.4
 Allgemeine Optimierung. Gemessen wurde mit den Kernmodulen (ohne Oberfläche); die Werte gelten für meinen Test-Rechner, auf deinem PC fallen sie anders aus.
 - **Timeline bei vielen Clips:** Die Startzeiten aller Clips werden jetzt in einem Durchlauf berechnet statt für jeden Clip einzeln (vorher wuchs der Aufwand quadratisch). Bei 300 Clips: 23 ms → unter 1 ms je Berechnung; das betrifft Zeichnen der Timeline, Ziehen von Clips, Einrasten und Ablegen von Medien.

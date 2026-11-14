@@ -94,7 +94,7 @@ def build_audio(project: Project, total: float, first_input: int, bed: str = "ac
         seg_len = seg / sp
         cmd += ["-ss", f"{a.in_pt:.3f}", "-t", f"{seg:.3f}", "-i", a.path]
         chain = f"[{k}:a]aresample=48000,aformat=channel_layouts=stereo"
-        fix = audiofix.chain(a.denoise, a.voice, audiofix.noise_floor(a.path, a.in_pt, a.out_pt) if a.denoise > 0 else None)
+        fix = audiofix.chain(a.denoise, a.voice, audiofix.noise_floor(a.path, a.in_pt, a.out_pt) if a.denoise > 0 else None, a.denoise_ai)
         if fix:
             chain += "," + fix
         if a.reverse:

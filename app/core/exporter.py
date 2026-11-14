@@ -604,7 +604,7 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
         out_len = span / sp
         if c.has_audio and not c.mute and not c.audio_detached and not c.is_image:
             a = f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo"
-            fix = audiofix.chain(c.denoise, c.voice, audiofix.noise_floor(c.path, c.in_pt, c.out_pt) if c.denoise > 0 else None)
+            fix = audiofix.chain(c.denoise, c.voice, audiofix.noise_floor(c.path, c.in_pt, c.out_pt) if c.denoise > 0 else None, c.denoise_ai)
             if fix:
                 a += "," + fix
             if c.reverse:

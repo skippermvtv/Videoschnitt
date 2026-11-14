@@ -67,10 +67,37 @@ def voice_params(level: int) -> tuple[int, float]:
     return int(round(70 + s * 0.7)), round(s * 0.06, 1)            # 70…140 Hz; 0…6 dB
 
 
-def chain(denoise: int = 0, voice: int = 0, floor: int | None = None) -> str:
-    """Filterkette (ohne führendes Komma); leer, wenn nichts eingestellt ist. `floor` = gemessener Rauschpegel."""
+MODEL_FILE = "sh.rnnn"       # RNNoise-Modell „Sprache bei Aufnahmegeräuschen“ (Lüfter, Rauschen, Brummen), siehe THIRD_PARTY.txt
+
+
+def model_path() -> Path:
+    from .. import paths
+    return paths.bundle_dir() / "assets" / "rnnoise" / MODEL_FILE
+
+
+def _esc(p: str) -> str:
+    """Pfad für eine FFmpeg-Filteroption in Hochkommas (Windows: C:\\x → C\\:/x)."""
+    return p.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+
+
+def ai_filter(level: int) -> str:
+    """arnndn (neuronales Netz für Sprache) mit Stärke 1…100 als Mischung von Original und bereinigtem Ton; leer bei 0
+    oder wenn das Modell fehlt (dann bleibt der Ton unverändert, der Export scheitert nicht)."""
+    s = _lvl(level)
+    m = model_path()
+    if s <= 0 or not m.is_file():
+        return ""
+    return f"arnndn=m='{_esc(str(m))}':mix={s / 100.0:.2f}"
+
+
+def chain(denoise: int = 0, voice: int = 0, floor: int | None = None, ai: int = 0) -> str:
+    """Filterkette (ohne führendes Komma); leer, wenn nichts eingestellt ist. `floor` = gemessener Rauschpegel,
+    `ai` = Stärke der KI-Rauschentfernung (kommt zuerst, dann die klassische Entrauschung und die Sprachklärung)."""
     parts: list[str] = []
     d, v = _lvl(denoise), _lvl(voice)
+    a = ai_filter(ai)
+    if a:
+        parts.append(a)
     if d > 0:
         nr, nf = denoise_params(d, floor)
         parts.append(f"afftdn=nr={nr}:nf={nf}")

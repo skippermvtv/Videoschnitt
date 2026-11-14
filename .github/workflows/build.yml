@@ -110,6 +110,10 @@ jobs:
           T tests/test_cache.py $env:RUNNER_TEMP
           T tests/test_livequality.py $env:RUNNER_TEMP
           T tests/test_speed154.py $env:RUNNER_TEMP
+          T tests/test_denoise_ai.py $env:RUNNER_TEMP
+          T tests/test_textcut.py $env:RUNNER_TEMP
+          T tests/test_highlights.py $env:RUNNER_TEMP
+          T tests/test_upscale.py $env:RUNNER_TEMP
           T tests/test_loudness.py $env:RUNNER_TEMP
           T tests/test_overlay_audio.py $env:RUNNER_TEMP
           T tests/test_multiexport.py $env:RUNNER_TEMP

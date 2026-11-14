@@ -149,6 +149,7 @@ class Clip:
     motion_ease: bool = True       # sanfte Übergänge zwischen den Keyframes
     stabilize: int = 0             # Videostabilisierung 0 (aus) … 100 (stark), siehe core/stabilize.py
     denoise: int = 0               # Rauschen entfernen 0 … 100, siehe core/audiofix.py
+    denoise_ai: int = 0            # KI-Rauschentfernung (RNNoise) 0 … 100, siehe core/audiofix.py
     voice: int = 0                 # Sprache klarer 0 … 100
     # Chroma-Key für das Hauptvideo (1.4.4): wie beim Bild-in-Bild; key_bg = Bild/Video, das durch die Lücken scheint
     key_color: str = ""            # "" = aus, sonst "#RRGGBB"
@@ -211,6 +212,7 @@ class AudioClip:
     link_offset: float = 0.0   # Abstand zum Anfang des verknüpften Clips
     name: str = ""
     denoise: int = 0           # Rauschen entfernen 0 … 100
+    denoise_ai: int = 0        # KI-Rauschentfernung 0 … 100
     voice: int = 0             # Sprache klarer 0 … 100
 
     def __post_init__(self):
@@ -500,7 +502,7 @@ class Project:
         a = AudioClip(path=c.path, duration=c.duration, in_pt=c.in_pt, out_pt=c.out_pt,
                       start=self.clip_start(index), track=1, volume=0.0 if c.mute else c.volume,
                       speed=c.speed, mute=c.mute, reverse=c.reverse, kind="video", link=c.uid,
-                      link_offset=0.0, name=f"Ton: {c.name}", denoise=c.denoise, voice=c.voice)
+                      link_offset=0.0, name=f"Ton: {c.name}", denoise=c.denoise, voice=c.voice, denoise_ai=c.denoise_ai)
         c.audio_detached = True
         self.audio_clips.append(a)
         return a
@@ -510,7 +512,7 @@ class Project:
         before = len(self.audio_clips)
         for a in self.audio_clips:                       # Tonverbesserung wandert mit zurück zum Clip
             if a.kind == "video" and a.link == c.uid:
-                c.denoise, c.voice = a.denoise, a.voice
+                c.denoise, c.voice, c.denoise_ai = a.denoise, a.voice, a.denoise_ai
         self.audio_clips = [a for a in self.audio_clips if not (a.kind == "video" and a.link == c.uid)]
         c.audio_detached = False
         return len(self.audio_clips) != before

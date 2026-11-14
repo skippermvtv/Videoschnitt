@@ -19,10 +19,16 @@ Python (https://www.python.org) – PSF-Lizenz
 PyInstaller (https://pyinstaller.org) – GPL mit Ausnahme für gebündelte Programme
 Inno Setup (https://jrsoftware.org) – Installer-Erstellung
 
+RNNoise-Modell "somnolent-hogwash" (assets/rnnoise/sh.rnnn) für die KI-Rauschentfernung
+  Aus https://github.com/GregorR/rnnoise-models (Modelle für RNNoise von Xiph.Org, BSD-3-Clause; laut dem Repository sind die
+  Modelldateien selbst nicht urheberrechtlich geschützt). Wird mitgeliefert, läuft komplett auf dem eigenen PC über FFmpeg (arnndn).
+
 Optional (wird NICHT mitgeliefert, nur auf Wunsch vom Benutzer selbst eingerichtet):
   whisper.cpp (https://github.com/ggml-org/whisper.cpp) – MIT-Lizenz, für automatische Untertitel
     (wird auf Wunsch von GitHub heruntergeladen; die Sprachmodelle stammen von https://huggingface.co/ggml-org/whisper.cpp)
   Whisper-Sprachmodelle (OpenAI) – MIT-Lizenz
+  Real-ESRGAN ncnn Vulkan (https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan) – MIT-Lizenz, für „KI-Hochskalieren“
+    (wird auf Wunsch von GitHub heruntergeladen; die Modelle stammen von https://github.com/xinntao/Real-ESRGAN)
 
 Schrift "FATE Metal" (fonts/FateMetal.ttf)
   Nachgezeichnet nach der Vorlage "FATE Metal Font". Die Rechte an der Vorlage und an der

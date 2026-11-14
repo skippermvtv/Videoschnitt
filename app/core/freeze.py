@@ -78,6 +78,7 @@ def make_clip(src: Clip, png: str, seconds: float) -> Clip:
     c.keyframes = []
     c.stabilize = 0
     c.denoise = 0
+    c.denoise_ai = 0
     c.voice = 0
     c.ramp_id = ""
     c.ramp_pts = []

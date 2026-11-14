@@ -944,6 +944,95 @@ def main() -> int:
             app.processEvents()
             assert win.minimumSizeHint().height() <= 800, f"Reiter {win.tabs.tabText(i)}: Mindesthöhe {win.minimumSizeHint().height()} px"
         win.tabs.setCurrentIndex(0)
+    with section("Vollbild der Vorschau lässt sich beenden"):
+        from PySide6.QtCore import Qt as _QtFs
+        from PySide6.QtTest import QTest as _QTestFs
+        win.show()
+        app.processEvents()
+        for how in ("esc_video", "esc_main", "f11", "dclick", "button"):
+            win._fullscreen_preview()
+            app.processEvents()
+            assert win.video.isFullScreen(), f"{how}: Vollbild startet nicht"
+            assert all(sc.isEnabled() for sc in win._fs_keys), f"{how}: Esc/F11 nicht aktiv im Vollbild"
+            if how == "esc_video":
+                _QTestFs.keyClick(win.video, _QtFs.Key.Key_Escape)
+            elif how == "esc_main":                              # Taste landet im Hauptfenster statt im Bild
+                win.activateWindow()
+                _QTestFs.keyClick(win, _QtFs.Key.Key_Escape)
+            elif how == "f11":
+                _QTestFs.keyClick(win, _QtFs.Key.Key_F11)
+            elif how == "dclick":
+                _QTestFs.mouseDClick(win.video, _QtFs.MouseButton.LeftButton)
+            else:
+                win.video._exit_btn.click()
+            app.processEvents()
+            assert not win.video.isFullScreen(), f"{how}: Vollbild lässt sich nicht beenden"
+            assert not any(sc.isEnabled() for sc in win._fs_keys), f"{how}: Esc/F11 bleiben nach dem Vollbild aktiv"
+            assert win.video.parent() is not None and not win.video.isWindow(), f"{how}: Bild hängt nicht mehr am Programm"
+    with section("Text-Schnitt (Fenster, Liste, Auswahl)"):
+        from PySide6.QtCore import Qt as _Qt155
+        from app.core import textcut as _tc155
+        from app.core.project import Clip as _Clip155, Project as _Project155, SubtitleCue as _Cue155
+        from app.ui.textcutdialog import TextCutDialog as _TD155
+        p155 = _Project155(format_id="youtube_16_9", export_id="fast_draft", layout="fill")
+        p155.clips = [_Clip155("/x/a.mp4", 60.0, in_pt=0.0, out_pt=20.0, has_audio=True, width=1920, height=1080)]
+        p155.subtitles = [_Cue155(1.0, 3.0, "Also ähm ich ich denke", [["Also", 0.0, 0.3], ["ähm", 0.4, 0.8], ["ich", 1.0, 1.2],
+                                                                      ["ich", 1.3, 1.5], ["denke", 1.6, 2.0]]),
+                          _Cue155(6.0, 8.0, "das ist gut", [["das", 0.0, 0.2], ["ist", 0.3, 0.5], ["gut", 1.5, 1.9]])]
+        assert win.btn_textcut.isEnabled()
+        dlg155 = _TD155(p155, win)
+        assert dlg155.word_list.count() == 8 and dlg155.cut_list.count() == 2, (dlg155.word_list.count(), dlg155.cut_list.count())
+        assert dlg155.btn_apply.isEnabled() and "2 Schnitte" in dlg155.info.text(), dlg155.info.text()
+        dlg155.chk_pause.setChecked(True)
+        assert dlg155.cut_list.count() == 4, dlg155.cut_list.count()          # dazu zwei Pausen (3,0 s und 1,0 s)
+        dlg155.chk_pause.setChecked(False)
+        dlg155.word_list.item(0).setSelected(True)           # „Also“ von Hand
+        assert dlg155.add_selected() == 1 and dlg155.cut_list.count() == 3
+        dlg155.cut_list.item(0).setCheckState(_Qt155.CheckState.Unchecked)
+        assert len(dlg155.checked_cuts()) == 2, len(dlg155.checked_cuts())
+        dlg155.accept()
+        assert len(dlg155.cuts) == 2 and dlg155.result() == 1
+        res155 = _tc155.apply(p155, dlg155.cuts)
+        assert len(p155.clips) == 3 and res155["removed"] > 0.5, (len(p155.clips), res155)
+        assert "ähm" not in " ".join(c.text for c in p155.subtitles)
+        dlg155.deleteLater()
+    with section("Highlights finden (Fenster, Analyse, Marker)"):
+        from app.core import highlights as _hl155
+        from app.core.project import Clip as _Clip155h, Project as _Project155h, probe as _probe155h
+        from app.ui.highlightdialog import HighlightDialog as _HD155
+        vid155 = os.path.join(tempfile.mkdtemp(prefix="fate_hl_"), "hl.mp4")
+        subprocess.run([find_binary("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x305090:s=160x90:r=10:d=16",
+                        "-f", "lavfi", "-i", "aevalsrc='0.01*sin(2*PI*220*t)+0.6*sin(2*PI*440*t)*gte(t,8)':s=22050:d=16",
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", vid155], check=True)
+        i155 = _probe155h(vid155)
+        ph155 = _Project155h(format_id="youtube_16_9", export_id="fast_draft", layout="fill")
+        ph155.clips = [_Clip155h(vid155, i155.duration, has_audio=True, width=i155.width, height=i155.height)]
+        dh155 = _HD155(ph155, win)
+        assert not dh155.btn_apply.isEnabled() and "Noch nicht" in dh155.info.text()
+        dh155.spin_len.setValue(6)
+        dh155.spin_count.setValue(1)
+        assert dh155.analyze() is True and len(dh155.found) == 1 and dh155.result_list.count() == 1, dh155.info.text()
+        assert dh155.found[0].start >= 7.0 and dh155.btn_apply.isEnabled(), dh155.found
+        dh155.spin_len.setValue(7)                              # Wert geändert → Ergebnis ungültig
+        assert not dh155.found and not dh155.btn_apply.isEnabled() and "neu analysieren" in dh155.info.text()
+        dh155.spin_len.setValue(6)
+        assert dh155.analyze() is True
+        assert _hl155.apply_markers(ph155, dh155.found) == 2 and ph155.markers[0]["name"].startswith("★")
+        dh155.deleteLater()
+    with section("KI-Hochskalieren (Fenster)"):
+        from app.core import upscale as _up155
+        from app.core.project import Clip as _Clip155u
+        from app.ui.upscaledialog import UpscaleDialog as _UD155
+        assert win.btn_upscale is not None
+        du155 = _UD155(_Clip155u("/x/a.mp4", 120.0, in_pt=0.0, out_pt=100.0, width=1920, height=1080), win)
+        assert du155.cmb_target.count() == 2 and du155.cmb_model.count() == len(_up155.MODELS) and du155.chk_test.isChecked()
+        assert du155.btn_go.isEnabled() and "Bilder" in du155.note.text()
+        du155.accept()
+        assert du155.target == 1440 and du155.model_key == "video" and du155.test_only is True, (du155.target, du155.model_key)
+        du155.deleteLater()
+        dbig155 = _UD155(_Clip155u("/x/a.mp4", 10.0, in_pt=0.0, out_pt=5.0, width=3840, height=2160), win)
+        assert dbig155.cmb_target.count() == 0 and not dbig155.btn_go.isEnabled() and "nicht nötig" in dbig155.note.text()
+        dbig155.deleteLater()
     with section("Ton verbessern"):
         # Ton verbessern
         win._select_clip(0)
