@@ -61,7 +61,8 @@ check(found and found[0].length == 20.0, found)
 best = max(found, key=lambda h: h.score)
 check(30.0 <= best.start + 0.5 and best.end <= 50.5, f"bester Abschnitt {best.start}–{best.end} liegt nicht in der lauten Stelle")
 n = hl.apply_markers(p, found)
-check(n == 2 * len(found) and p.markers[0]["name"].startswith("★"), (n, p.markers))
+distinct = len({round(t, 2) for h in found for t in (h.start, h.end)})      # Ende des einen = Anfang des nächsten → ein gemeinsamer Marker
+check(n == distinct and n >= len(found) + 1 and p.markers[0]["name"].startswith("★"), (n, distinct, p.markers))
 check("Highlight" in hl.describe(found[0], 1), hl.describe(found[0], 1))
 print(f"OK  echtes Video: bester Abschnitt {best.start:.0f}–{best.end:.0f} s ({', '.join(best.reasons)})")
 
