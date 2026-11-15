@@ -147,6 +147,8 @@ class Clip:
     crop_b: float = 0.0
     keyframes: list = field(default_factory=list)   # Bewegung: [{"t":0..1,"zoom":100..400,"x":-100..100,"y":..,"rot":°}]
     motion_ease: bool = True       # sanfte Übergänge zwischen den Keyframes
+    brand: str = ""                # "intro" | "outro": Clip stammt aus der Marken-Vorlage (siehe core/brand.py)
+    reframe: list = field(default_factory=list)     # Auto-Hochkant (1.5.6): [{"t":0..1,"x":-100..100}] = Bildausschnitt im Layout „Füllen“, siehe core/reframe.py
     stabilize: int = 0             # Videostabilisierung 0 (aus) … 100 (stark), siehe core/stabilize.py
     denoise: int = 0               # Rauschen entfernen 0 … 100, siehe core/audiofix.py
     denoise_ai: int = 0            # KI-Rauschentfernung (RNNoise) 0 … 100, siehe core/audiofix.py
@@ -163,6 +165,7 @@ class Clip:
     ramp_pts: list = field(default_factory=list)      # die Kurve [[Position %, Tempo], …]
     ramp_speed: float = 1.0                           # Grundtempo des Clips vor der Kurve
     ramp_keys: list = field(default_factory=list)     # Bewegungs-Keyframes vor dem Teilen
+    ramp_reframe: list = field(default_factory=list)  # Auto-Hochkant-Keyframes vor dem Teilen
     ramp_ease: bool = True
 
     def __post_init__(self):

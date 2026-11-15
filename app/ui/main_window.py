@@ -25,6 +25,9 @@ from PySide6.QtWidgets import (
 from .. import paths
 from ..core import effects as fx
 from ..core import highlights as hilite
+from ..core import batch as batchlib
+from ..core import brand as brandlib
+from ..core import reframe as reframelib
 from ..core import upscale as upscalelib
 from ..core import textcut
 from ..core.pieces import PieceError
@@ -42,7 +45,10 @@ from .theme import BRAND, MUTED
 from .curveeditor import SpeedCurveEditor
 from .beatdialog import BeatDialog
 from .scenedialog import SceneDialog
+from .batchdialog import BatchExportDialog
+from .brandialog import BrandDialog
 from .highlightdialog import HighlightDialog
+from .reframedialog import ReframeDialog
 from .silencedialog import SilenceDialog
 from .upscaledialog import UpscaleDialog
 from .textcutdialog import TextCutDialog
@@ -289,6 +295,8 @@ class MainWindow(QMainWindow):
         self._multi_loud: list = []
         self._last_loudness: float | None = None
         self._multi_total = 0
+        self._multi_batch = False           # Stapel-Export: bei Fehlern weitermachen, keine Untertitel-Datei des geöffneten Projekts
+        self._multi_failed: list = []
         self._tmp_dirs: list[Path] = []
         self._grade_worker = None
         self._grade_dirty = False
@@ -1797,6 +1805,10 @@ class MainWindow(QMainWindow):
         self.btn_scenes = QPushButton("An Szenenwechseln teilen …")
         self.btn_scenes.setToolTip("Findet Stellen, an denen sich das Bild stark ändert, und teilt den Clip dort. Zuerst gibt es eine Vorschau mit Zahlen.")
         self.btn_scenes.clicked.connect(lambda *_: self.split_scenes())
+        self.btn_reframe = QPushButton("Auto-Hochkant (9:16) …")
+        self.btn_reframe.setToolTip("Schneidet Querformat-Clips fürs Hochformat zu; der Ausschnitt folgt dem Geschehen (Bewegung). "
+                                    "Erkennt keine Gesichter. Zuerst gibt es eine Analyse, dann übernimmst du das Ergebnis.")
+        self.btn_reframe.clicked.connect(lambda *_: self.auto_reframe())
         self.btn_upscale = QPushButton("KI-Hochskalieren (2K/4K) …")
         self.btn_upscale.setToolTip("Rechnet den Clip mit Real-ESRGAN auf deiner Grafikkarte größer. Keine verlustfreie Vergrößerung, aber meist "
                                     "schärfer als normales Hochrechnen. Langsam, zuerst 10 Sekunden testen.")
@@ -1804,6 +1816,7 @@ class MainWindow(QMainWindow):
         form.addRow(QLabel("Schneiden"))
         form.addRow(self.btn_silence)
         form.addRow(self.btn_scenes)
+        form.addRow(self.btn_reframe)
         form.addRow(QLabel("Übergang zum nächsten Clip"))
         form.addRow("Art", self.clip_trans)
         form.addRow("Dauer", self.clip_trans_dur)
@@ -2574,6 +2587,8 @@ class MainWindow(QMainWindow):
         mf.addAction(self.act_preview)
         mf.addAction(self.act_export)
         mf.addAction(self.act_export_multi)
+        self.act_export_batch = act("Stapel-Export (mehrere Projekte) …", self.export_batch)
+        mf.addAction(self.act_export_batch)
         self.act_export_gif = act("Als animiertes GIF exportieren …", self.export_gif)
         mf.addAction(self.act_export_gif)
         self.act_still = act("Aktuelles Bild als PNG speichern …", self.save_still)
@@ -2624,6 +2639,9 @@ class MainWindow(QMainWindow):
         me.addAction(self.act_close_gaps)
         self.act_freeze = act("Standbild an dieser Stelle einfügen …", self.insert_freeze, "Ctrl+Shift+F")
         me.addAction(self.act_freeze)
+        me.addSeparator()
+        me.addAction(act("Auto-Hochkant (9:16) …", self.auto_reframe))
+        me.addAction(act("Marken-Vorlage: Intro, Outro, Logo …", self.brand_dialog))
         me.addSeparator()
         mk = me.addMenu("Marker")
         mk.addAction(act("Marker setzen / entfernen (M)", self.add_marker))
@@ -3393,8 +3411,17 @@ class MainWindow(QMainWindow):
                         height=info.height, is_image=True)
         else:
             clip = Clip(path, info.duration, has_audio=info.has_audio, width=info.width, height=info.height)
-        pos = len(self.project.clips) if at is None else max(0, min(int(at), len(self.project.clips)))
+        first = not self.project.clips
+        pos = brandlib.insert_position(self.project) if at is None else max(0, min(int(at), len(self.project.clips)))
         self.project.clips.insert(pos, clip)
+        if first and not self._loading:
+            kit = brandlib.load()
+            if kit.auto_new and not kit.empty():
+                notes = brandlib.apply(self.project, kit)
+                pos = next((i for i, c in enumerate(self.project.clips) if c is clip), pos)
+                self._show_watermark()
+                if notes:
+                    self.statusBar().showMessage("Marken-Vorlage: " + " ".join(notes))
         self._refresh_timeline(select=pos)
 
     # ------------------------------------------------------------ Timeline
@@ -3582,6 +3609,75 @@ class MainWindow(QMainWindow):
             return False
         self._refresh_timeline(select=idx)
         self.statusBar().showMessage("Vergrößerter Clip eingesetzt" + (" (Test als neuer Clip dahinter)" if as_new_clip else "") + ". Rückgängig mit Strg+Z.")
+        return True
+
+    def brand_dialog(self) -> bool:
+        """Marken-Vorlage bearbeiten und ins Projekt einsetzen oder daraus entfernen."""
+        dlg = BrandDialog(brandlib.load(), self)
+        self._brand_dialog = dlg
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return False
+        return self.apply_brand(dlg.kit(), dlg.action)
+
+    def apply_brand(self, kit, action: str) -> bool:
+        if action in ("save", "apply") and not brandlib.save(kit):
+            QMessageBox.warning(self, "Marken-Vorlage", "Die Vorlage konnte nicht gespeichert werden.")
+        if action == "save":
+            self.statusBar().showMessage("Marken-Vorlage gespeichert.")
+            return True
+        if not self.project.clips and action == "apply":
+            self.statusBar().showMessage("Vorlage gespeichert. Zum Einsetzen zuerst einen Clip in die Timeline legen "
+                                         "(oder die Automatik im Fenster einschalten).")
+            return True
+        if action == "remove":
+            n = brandlib.remove(self.project, kit)
+            msg = f"Intro/Outro entfernt ({n} Clip(s))." if n else "Es war kein Intro/Outro eingesetzt."
+            notes: list[str] = []
+        else:
+            notes = brandlib.apply(self.project, kit)
+            msg = "Marken-Vorlage eingesetzt. Strg+Z macht es rückgängig."
+        self._show_watermark()
+        self._refresh_timeline(select=self.sel if 0 <= self.sel < len(self.project.clips) else 0)
+        self.statusBar().showMessage((msg + " " + " ".join(notes)).strip())
+        if notes:
+            QMessageBox.information(self, "Marken-Vorlage", "\n".join(notes))
+        return True
+
+    def auto_reframe(self) -> bool:
+        """Öffnet „Auto-Hochkant“: analysiert die Clips und schreibt die Kamerafahrt in die Clips (Layout „Füllen“)."""
+        if not self.project.clips:
+            self.statusBar().showMessage("Zuerst Clips in die Timeline legen.")
+            return False
+        dlg = ReframeDialog(self.project, self.sel, self)
+        self._reframe_dialog = dlg
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.result:
+            return False
+        return self.apply_reframe(dlg.result, dlg.set_fill, dlg.set_format, dlg.remove)
+
+    def apply_reframe(self, result: dict, set_fill: bool = True, set_vertical: bool = False, removed: bool = False) -> bool:
+        if removed:
+            n = reframelib.clear(self.project, list(result))
+            self.statusBar().showMessage(f"Auto-Hochkant bei {n} Clip(s) entfernt." if n else "Es war kein Auto-Hochkant gesetzt.")
+        else:
+            if set_vertical and self.project.format_id != "shorts":
+                self.project.format_id = "shorts"
+                self._loading = True
+                try:
+                    i = self.cmb_format.findData("shorts")
+                    if i >= 0:
+                        self.cmb_format.setCurrentIndex(i)
+                finally:
+                    self._loading = False
+                self._update_format_info()
+            n = reframelib.apply(self.project, result, set_fill)
+            if set_fill and self.project.layout == "fill":
+                i = self.cmb_layout.findData("fill")
+                if i >= 0:
+                    self._loading = True
+                    self.cmb_layout.setCurrentIndex(i)
+                    self._loading = False
+            self.statusBar().showMessage(f"Auto-Hochkant bei {n} Clip(s) gesetzt. Strg+Z macht es rückgängig; die Live-Vorschau zeigt es gleich.")
+        self._refresh_timeline(select=self.sel if 0 <= self.sel < len(self.project.clips) else -1)
         return True
 
     def find_highlights(self) -> bool:
@@ -5617,6 +5713,35 @@ class MainWindow(QMainWindow):
             return False
         self._multi_jobs, self._multi_ok, self._multi_total = list(jobs), [], len(jobs)
         self._multi_loud = []
+        self._multi_batch, self._multi_failed = False, []
+        use_hw = self.chk_hw.isChecked() and exporter.hw_encoder() is not None
+        self._multi_next(use_hw)
+        return True
+
+    def export_batch(self) -> None:
+        """Stapel-Export: mehrere gespeicherte Projekte nacheinander in den gewählten Formaten exportieren."""
+        if self._worker is not None or self._multi_jobs:
+            QMessageBox.information(self, APP_NAME, "Es läuft bereits ein Export.")
+            return
+        dlg = BatchExportDialog(self)
+        self._batch_dialog = dlg
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.run_batch_export(dlg.items, dlg.format_ids, dlg.folder)
+
+    def run_batch_export(self, items, format_ids: list[str], folder: str) -> bool:
+        try:
+            pl = batchlib.plan(items, format_ids, folder)
+        except batchlib.MultiExportError as exc:
+            QMessageBox.warning(self, "Stapel-Export", str(exc))
+            return False
+        if pl.notes and QMessageBox.question(self, "Stapel-Export", f"{len(pl.jobs)} Datei(en) werden exportiert. Hinweise:\n\n"
+                                             + "\n".join(pl.notes[:12]) + ("\n…" if len(pl.notes) > 12 else "")
+                                             + "\n\nTrotzdem starten?") != QMessageBox.StandardButton.Yes:
+            return False
+        self._multi_jobs, self._multi_ok, self._multi_total = list(pl.jobs), [], len(pl.jobs)
+        self._multi_loud = []
+        self._multi_batch, self._multi_failed = True, []
         use_hw = self.chk_hw.isChecked() and exporter.hw_encoder() is not None
         self._multi_next(use_hw)
         return True
@@ -5624,19 +5749,29 @@ class MainWindow(QMainWindow):
     def _multi_next(self, use_hw: bool) -> None:
         if not self._multi_jobs:
             done = self._multi_ok
-            self.statusBar().showMessage(f"{len(done)} Dateien exportiert.")
-            loud = next((t for t in self._multi_loud if t), "")         # der Ton ist in allen Formaten derselbe
-            srt_msg = self._write_export_srt(done[0]) if done else ""    # eine Datei genügt: die Zeiten sind in allen Formaten gleich
-            if done and QMessageBox.question(self, "Export fertig", f"{len(done)} Dateien gespeichert:\n\n"
-                                             + "\n".join(Path(o).name for o in done) + "\n\n" + (loud + "\n\n" if loud else "")
-                                             + (srt_msg + "\n\n" if srt_msg else "")
-                                             + "Ordner öffnen?") == QMessageBox.StandardButton.Yes:
+            batch_mode, failed = self._multi_batch, list(self._multi_failed)
+            self._multi_batch, self._multi_failed = False, []
+            self.statusBar().showMessage(f"{len(done)} Dateien exportiert." + (f" {len(failed)} fehlgeschlagen." if failed else ""))
+            loud = next((t for t in self._multi_loud if t), "") if not batch_mode else ""         # der Ton ist in allen Formaten derselbe
+            srt_msg = self._write_export_srt(done[0]) if done and not batch_mode else ""    # eine Datei genügt: die Zeiten sind in allen Formaten gleich
+            fail_msg = ("Fehlgeschlagen:\n" + "\n".join(f"{lbl}: {str(e)[-160:]}" for lbl, e in failed) + "\n\n") if failed else ""
+            if failed and not done:
+                QMessageBox.critical(self, "Stapel-Export", fail_msg.strip())
+            elif (done or failed) and QMessageBox.question(self, "Export fertig", f"{len(done)} Dateien gespeichert:\n\n"
+                                                           + "\n".join(Path(o).name for o in done) + "\n\n" + fail_msg + (loud + "\n\n" if loud else "")
+                                                           + (srt_msg + "\n\n" if srt_msg else "")
+                                                           + "Ordner öffnen?") == QMessageBox.StandardButton.Yes and done:
                 self._open_folder(str(Path(done[0]).parent))
             return
         job = self._multi_jobs[0]
         try:
             cmd, total, tmp = exporter.build_command(job.project, job.out, use_hw=use_hw)
         except Exception as exc:  # noqa: BLE001
+            if self._multi_batch:
+                self._multi_failed.append((job.label, str(exc)))
+                self._multi_jobs.pop(0)
+                QTimer.singleShot(0, lambda: self._multi_next(use_hw))
+                return
             QMessageBox.critical(self, "Export", f"{job.label}: {exc}")
             self._multi_jobs = []
             return
@@ -5648,7 +5783,13 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage("Grafikkarten-Export fehlgeschlagen – neuer Versuch mit dem Prozessor …")
                 QTimer.singleShot(200, lambda: self._multi_next(False))
                 return
+            if err and self._multi_batch and "abgebrochen" not in err.lower():
+                self._multi_failed.append((job.label, err))
+                self._multi_jobs.pop(0)
+                self._multi_next(use_hw)
+                return
             if err:
+                self._multi_batch = False
                 QMessageBox.critical(self, "Export fehlgeschlagen", f"{job.label}:\n{err}\n\nFertig waren {len(self._multi_ok)} von {self._multi_total}.")
                 self._multi_jobs = []
                 return

@@ -84,6 +84,12 @@ def _value_at(keys: list[dict], field: str, u: float, ease: bool) -> float:
     return pts[-1][1]
 
 
+def remap_reframe(keys: list, length: float, a: float, b: float) -> list:
+    """Auto-Hochkant-Keyframes ({"t", "x"}) für den Ausschnitt [a, b] eines Clips der Länge `length` neu berechnen."""
+    out, _ = _remap_keys([k for k in keys if isinstance(k, dict)], False, length, a, b)
+    return [{"t": round(float(k.get("t", 0)), 6), "x": round(float(k.get("x", 0)), 3)} for k in out if isinstance(k, dict)]
+
+
 def _remap_keys(keys: list, ease: bool, length: float, a: float, b: float) -> tuple[list, bool]:
     """Keyframes (Zeit 0…1 über die Clip-Länge) für den Ausschnitt [a, b] des Clips neu berechnen.
 
@@ -151,6 +157,8 @@ def project_window(p: Project, t0: float, length: float) -> tuple[Project, float
                 nc.in_pt, nc.out_pt = c.in_pt + a * sp, c.in_pt + b * sp
             if c.keyframes:
                 nc.keyframes, nc.motion_ease = _remap_keys(c.keyframes, c.motion_ease, L[k], a, b)
+            if c.reframe:
+                nc.reframe = remap_reframe(c.reframe, L[k], a, b)
         out.clips.append(nc)
 
     # --- Effekt-Blöcke (Zeiten verschieben; Masken mit Pfad behalten ihren Zeitbezug)

@@ -76,6 +76,7 @@ def make_clip(src: Clip, png: str, seconds: float) -> Clip:
     c.audio_detached = False
     c.transition = ""
     c.keyframes = []
+    c.reframe = []
     c.stabilize = 0
     c.denoise = 0
     c.denoise_ai = 0
@@ -84,6 +85,7 @@ def make_clip(src: Clip, png: str, seconds: float) -> Clip:
     c.ramp_pts = []
     c.ramp_speed = 1.0
     c.ramp_keys = []
+    c.ramp_reframe = []
     return c
 
 

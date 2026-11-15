@@ -308,3 +308,27 @@ class UpscaleWorker(QThread):
             self.done.emit("", "abgebrochen")
         except Exception as exc:  # noqa: BLE001
             self.done.emit("", str(exc) or exc.__class__.__name__)
+
+
+class ReframeWorker(QThread):
+    """Wertet Clips für Auto-Hochkant aus (auf einer Kopie des Projekts)."""
+    progress = Signal(float)
+    done = Signal(object, object, str)      # ({Clip-Nr.: Keyframes}, Hinweise, Fehlertext)
+
+    def __init__(self, project, indices: list[int], style: str, parent=None):
+        super().__init__(parent)
+        self._args = (project, indices, style)
+        self._cancel = False
+
+    def cancel(self) -> None:
+        self._cancel = True
+
+    def run(self) -> None:
+        try:
+            from ..core import reframe
+            project, indices, style = self._args
+            res, notes = reframe.analyze_project(project, indices, style, should_cancel=lambda: self._cancel,
+                                                 on_progress=self.progress.emit)
+            self.done.emit(res, notes, "")
+        except Exception as exc:  # noqa: BLE001
+            self.done.emit({}, [], str(exc) or exc.__class__.__name__)

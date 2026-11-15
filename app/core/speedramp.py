@@ -173,6 +173,11 @@ def check_clip(c: Clip) -> None:
 
 
 # ---------------------------------------------------------------- Anwenden
+def remap_reframe(keys: list, length: float, a: float, b: float) -> list:
+    from .window import remap_reframe as rr
+    return rr(keys, length, a, b)
+
+
 def _remap(keys: list, ease: bool, a: float, b: float):
     from .window import _remap_keys
     return _remap_keys(keys, ease, 1.0, a, b)
@@ -180,6 +185,7 @@ def _remap(keys: list, ease: bool, a: float, b: float):
 
 def _forget(c: Clip) -> None:
     c.ramp_id, c.ramp_pts, c.ramp_speed, c.ramp_keys, c.ramp_ease = "", [], 1.0, [], True
+    c.ramp_reframe = []
 
 
 def group_of(project: Project, idx: int) -> tuple[int, int] | None:
@@ -221,6 +227,7 @@ def merge_group(project: Project, idx: int) -> int:
     first.speed = first.ramp_speed
     first.transition, first.transition_dur = last.transition, last.transition_dur
     first.keyframes, first.motion_ease = copy.deepcopy(first.ramp_keys), first.ramp_ease
+    first.reframe = copy.deepcopy(first.ramp_reframe)
     _forget(first)
     del project.clips[lo + 1:hi + 1]
     project.sync_linked()
@@ -246,6 +253,7 @@ def apply(project: Project, idx: int, points) -> list[int]:
     parts = pieces(pts, seg, c.speed)
     base_in, last_trans, last_dur = c.in_pt, c.transition, c.transition_dur
     keys, ease = list(c.keyframes or []), c.motion_ease
+    rkeys = list(c.reframe or [])
     gid, base_speed = uuid.uuid4().hex[:10], c.speed
     new: list[Clip] = []
     for k, (a, b, sp) in enumerate(parts):
@@ -254,12 +262,15 @@ def apply(project: Project, idx: int, points) -> list[int]:
             piece.uid = uuid.uuid4().hex[:10]
         piece.ramp_id, piece.ramp_pts, piece.ramp_speed = gid, [list(q) for q in pts], base_speed
         piece.ramp_keys, piece.ramp_ease = copy.deepcopy(keys), ease
+        piece.ramp_reframe = copy.deepcopy(rkeys)
         piece.in_pt = base_in + a * seg
         piece.out_pt = base_in + b * seg if k < len(parts) - 1 else base_in + seg
         piece.speed = round(sp, 4)
         piece.transition, piece.transition_dur = ("", c.transition_dur) if k < len(parts) - 1 else (last_trans, last_dur)
         if keys:
             piece.keyframes, piece.motion_ease = _remap(keys, ease, a, b)
+        if rkeys:
+            piece.reframe = remap_reframe(rkeys, 1.0, a, b)
         new.append(piece)
     project.clips[idx:idx + 1] = new
     project.sync_linked()

@@ -114,6 +114,9 @@ jobs:
           T tests/test_textcut.py $env:RUNNER_TEMP
           T tests/test_highlights.py $env:RUNNER_TEMP
           T tests/test_upscale.py $env:RUNNER_TEMP
+          T tests/test_reframe.py $env:RUNNER_TEMP
+          T tests/test_batch.py $env:RUNNER_TEMP
+          T tests/test_brand.py $env:RUNNER_TEMP
           T tests/test_loudness.py $env:RUNNER_TEMP
           T tests/test_overlay_audio.py $env:RUNNER_TEMP
           T tests/test_multiexport.py $env:RUNNER_TEMP

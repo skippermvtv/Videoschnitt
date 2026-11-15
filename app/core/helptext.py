@@ -38,6 +38,9 @@ STEPS = [
 TIPS = [
     "Text-Schnitt (Reiter Untertitel): Entfernt „ähm“, doppelte Wörter und Pausen nach dem gesprochenen Text. Erst Untertitel automatisch erzeugen, dann „Text-Schnitt“. Du siehst eine Liste mit Häkchen, Strg+Z macht alles rückgängig.",
     "KI-Rauschentfernung: Regler im Reiter Clip bzw. Ton. Für Sprache mit Lüfter- oder Raumrauschen; bei Musik lieber den normalen Regler „Rauschen entfernen“ benutzen. 100 % = voll bereinigt, weniger mischt Original dazu.",
+    "Auto-Hochkant (Menü Bearbeiten, Reiter Clip): schneidet Querformat-Clips fürs Hochformat zu; der Ausschnitt folgt dem Geschehen. Erkennt keine Gesichter – Ergebnis bitte ansehen.",
+    "Marken-Vorlage (Menü Bearbeiten): Intro, Outro und Logo einmal festlegen und mit einem Klick in jedes Projekt einsetzen.",
+    "Stapel-Export (Menü Datei): mehrere gespeicherte Projekte in einem Rutsch in mehreren Formaten exportieren.",
     "Highlights finden (Menü Marker): schlägt die lautesten, gesprächigsten Abschnitte für Shorts vor und setzt Marker. Eine Schätzung – bitte selbst ansehen.",
     "KI-Hochskalieren (Reiter Clip): Real-ESRGAN rechnet auf deiner Grafikkarte auf 2K/4K. Keine verlustfreie Vergrößerung und langsam – erst den 10-Sekunden-Test machen. Braucht eine Vulkan-Grafikkarte und mindestens 4 GB freien Platz.",
     "Proxys: Große Videos (über Full HD, HEVC) bekommen beim Import automatisch eine kleine Vorschau-Kopie, damit Abspielen und Live-Vorschau flüssig bleiben. Der Export nimmt immer das Original. Im Datei-Menü: Proxys für alle Videos erstellen, automatisch ein/aus, in der Vorschau benutzen, und „Zwischenspeicher verwalten“ zum Aufräumen.",

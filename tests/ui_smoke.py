@@ -1034,6 +1034,63 @@ def main() -> int:
         dbig155 = _UD155(_Clip155u("/x/a.mp4", 10.0, in_pt=0.0, out_pt=5.0, width=3840, height=2160), win)
         assert dbig155.cmb_target.count() == 0 and not dbig155.btn_go.isEnabled() and "nicht nötig" in dbig155.note.text()
         dbig155.deleteLater()
+    with section("Auto-Hochkant (Fenster, Analyse, Übernehmen)"):
+        from PySide6.QtTest import QTest as _QTest156
+        from app.ui.reframedialog import ReframeDialog as _RD156
+        assert win.btn_reframe is not None
+        dr156 = _RD156(win.project, 0, win)
+        assert dr156.cmb_style.count() == 3 and not dr156.btn_apply.isEnabled() and dr156.chk_fill.isChecked()
+        dr156.cmb_scope.setCurrentIndex(0)
+        dr156.analyze()
+        _t156 = 0
+        while dr156._worker is not None and _t156 < 1800:          # höchstens 90 s
+            app.processEvents()
+            _QTest156.qWait(50)
+            _t156 += 1
+        assert dr156._worker is None, "Analyse wird nicht fertig"
+        assert not dr156.info.text().startswith("Fehler"), dr156.info.text()
+        assert dr156.result or dr156.notes, "weder Ergebnis noch Hinweis"
+        dr156.deleteLater()
+        win.apply_reframe({0: [{"t": 0.0, "x": -40.0}, {"t": 1.0, "x": 40.0}]}, False, False, False)
+        assert win.project.clips[0].reframe[-1]["x"] == 40.0
+        win.apply_reframe({0: []}, False, False, True)
+        assert win.project.clips[0].reframe == []
+    with section("Stapel-Export (Fenster)"):
+        import tempfile as _tf156b
+        from app.core.project import Clip as _C156b, Project as _P156b
+        from app.ui.batchdialog import BatchExportDialog as _BD156
+        _d156b = Path(_tf156b.mkdtemp(prefix="batchui156_"))
+        _pj156b = _P156b(format_id="shorts", export_id="fast_draft")
+        _pj156b.clips = [_C156b(str(win.project.clips[0].path), 5.0, has_audio=False, width=640, height=360)]
+        _pj156b.save(str(_d156b / "A.cforge"))
+        _pe156b = _P156b(format_id="shorts", export_id="fast_draft")
+        _pe156b.save(str(_d156b / "Leer.cforge"))
+        db156 = _BD156(win)
+        assert not db156.btn_go.isEnabled() and "Noch keine" in db156.summary.text()
+        db156.add_files([str(_d156b / "A.cforge"), str(_d156b / "Leer.cforge")])
+        assert db156.list.count() == 2 and db156.btn_go.isEnabled(), (db156.list.count(), db156.summary.text())
+        assert "1 Projekt(e) bereit" in db156.summary.text() and "übersprungen" in db156.summary.text(), db156.summary.text()
+        db156.accept()
+        assert db156.format_ids == ["own"], db156.format_ids
+        db156.list.setCurrentRow(1)
+        db156.list.item(1).setSelected(True)
+        db156.remove_selected()
+        assert db156.list.count() == 1
+        db156.deleteLater()
+        assert win.act_export_batch is not None
+        __import__("shutil").rmtree(_d156b, ignore_errors=True)
+    with section("Marken-Vorlage (Fenster)"):
+        from app.core import brand as _brand156
+        from app.ui.brandialog import BrandDialog as _BrD156
+        dbr156 = _BrD156(_brand156.Kit(intro="/x/intro.mp4", logo="/x/logo.png", corner="tl", size=22, opacity=50, auto_new=True), win)
+        assert dbr156.row_intro.path == "/x/intro.mp4" and dbr156.row_outro.path == "" and dbr156.cmb_corner.currentData() == "tl"
+        k156 = dbr156.kit()
+        assert k156.intro == "/x/intro.mp4" and k156.logo == "/x/logo.png" and k156.size == 22 and k156.opacity == 50 and k156.auto_new, k156
+        dbr156.row_intro.set_path("")
+        dbr156.btn_save.click()
+        assert dbr156.action == "save" and dbr156.kit().intro == ""
+        dbr156.deleteLater()
+        assert win.brand_dialog is not None
     with section("Ton verbessern"):
         # Ton verbessern
         win._select_clip(0)

@@ -16,6 +16,7 @@ def render(clip: Clip, png_path: str, height: int = 360, at: float | None = None
     c.speed, c.reverse, c.transition, c.transition_dur = 1.0, False, "", 0.0
     c.ramp_id, c.ramp_pts, c.ramp_keys = "", [], []
     c.keyframes = []
+    c.reframe = []
     if not c.is_image:
         span = max(0.1, c.out_pt - c.in_pt)
         t = c.in_pt + (span / 2.0 if at is None else max(0.0, min(at, span)))

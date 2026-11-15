@@ -1402,6 +1402,83 @@ finally:
     _sh153.rmtree(_tmp153, ignore_errors=True)
 no_errors("1.5.3: Live-Weiterschalten")
 print("OK  1.5.3: Live-Weiterschalten")
+# 1.5.6: Auto-Hochkant übernehmen / entfernen
+_keep_fmt, _keep_lay = win.project.format_id, win.project.layout
+win.apply_reframe({0: [{"t": 0.0, "x": -60.0}, {"t": 1.0, "x": 60.0}]}, True, True, False)
+assert win.project.format_id == "shorts" and win.project.layout == "fill" and win.project.clips[0].reframe[0]["x"] == -60.0
+assert win.cmb_layout.currentData() == "fill" and win.cmb_format.currentData() == "shorts"
+win.apply_reframe({0: []}, True, False, True)
+assert win.project.clips[0].reframe == []
+win.project.format_id, win.project.layout = _keep_fmt, _keep_lay
+no_errors("1.5.6: Auto-Hochkant")
+print("OK  1.5.6: Auto-Hochkant")
+from app.core import batch as batchlib  # noqa: E402
+# 1.5.6: Stapel-Export läuft Projekt für Projekt, meldet Fehler am Ende und lässt das geöffnete Projekt unberührt
+import tempfile as _tf156  # noqa: E402
+from app.core.project import Clip as _C156, Project as _P156  # noqa: E402
+_d156 = Path(_tf156.mkdtemp(prefix="batch156_"))
+_files156 = []
+for _n156, _fmt156 in (("Eins", "youtube_16_9"), ("Zwei", "shorts")):
+    _pj156 = _P156(format_id=_fmt156, export_id="fast_draft")
+    _pj156.clips = [_C156(str(vid), 5.0, has_audio=False, width=640, height=360)]
+    _pj156.save(str(_d156 / f"{_n156}.cforge"))
+    _files156.append(str(_d156 / f"{_n156}.cforge"))
+_QMB, _keep156 = mw.QMessageBox, {}
+_boxes156 = []
+_keep156["q"], _keep156["c"], _keep156["rj"], _keep156["bc"] = _QMB.question, _QMB.critical, win._run_job, mw.exporter.build_command
+_QMB.question = staticmethod(lambda *a, **k: (_boxes156.append(("q", a[2] if len(a) > 2 else "")), _QMB.StandardButton.No)[1])
+_QMB.critical = staticmethod(lambda *a, **k: _boxes156.append(("c", a[2] if len(a) > 2 else "")))
+_ran156 = []
+win._run_job = lambda cmd, total, title, on_done, measure="": (_ran156.append((title, measure)), on_done(""))
+_before156 = (win.project.to_json(), win._project_file)
+try:
+    _ok156 = win.run_batch_export(batchlib.load_items(_files156), ["youtube_16_9", "shorts"], str(_d156))
+    assert _ok156 and len(_ran156) == 4, _ran156
+    assert _ran156[0][0].startswith("Export 1/4: Eins:") and _ran156[3][0].startswith("Export 4/4: Zwei:"), [r[0] for r in _ran156]
+    assert win._multi_jobs == [] and not win._multi_batch, "Stapel ist nicht zu Ende gelaufen"
+    assert any(b[0] == "q" for b in _boxes156), _boxes156
+    # Fehler in einem Auftrag: die übrigen laufen weiter, am Ende steht der Fehler in der Meldung
+    _ran156.clear(); _boxes156.clear()
+    _calls156 = {"n": 0}
+
+    def _failing156(cmd, total, title, on_done, measure=""):
+        _calls156["n"] += 1
+        _ran156.append(title)
+        on_done("kaputt" if _calls156["n"] == 2 else "")
+    win._run_job = _failing156
+    win.run_batch_export(batchlib.load_items(_files156), ["youtube_16_9", "shorts"], str(_d156))
+    assert len(_ran156) == 4 and len(win._multi_ok) == 3, (len(_ran156), win._multi_ok)
+    assert any(b[0] == "q" for b in _boxes156), _boxes156
+    assert (win.project.to_json(), win._project_file) == _before156, "geöffnetes Projekt wurde verändert"
+finally:
+    _QMB.question, _QMB.critical, win._run_job, mw.exporter.build_command = _keep156["q"], _keep156["c"], _keep156["rj"], _keep156["bc"]
+    win._multi_jobs, win._multi_batch, win._multi_failed = [], False, []
+    import shutil as _sh156
+    _sh156.rmtree(_d156, ignore_errors=True)
+no_errors("1.5.6: Stapel-Export")
+print("OK  1.5.6: Stapel-Export")
+# 1.5.6: Marken-Vorlage einsetzen / ersetzen / entfernen, neue Clips kommen vor das Outro
+from app.core import brand as brandlib  # noqa: E402
+_n156 = len(win.project.clips)
+_kit156 = brandlib.Kit(intro=str(vid), outro=str(vid))
+_QMB156 = mw.QMessageBox
+_ki156 = _QMB156.information
+_QMB156.information = staticmethod(lambda *a, **k: None)
+try:
+    assert win.apply_brand(_kit156, "apply")
+    assert len(win.project.clips) == _n156 + 2 and win.project.clips[0].brand == "intro" and win.project.clips[-1].brand == "outro"
+    win.apply_brand(_kit156, "apply")
+    assert len(win.project.clips) == _n156 + 2, "Einsetzen verdoppelt Intro/Outro"
+    win.media[str(vid)] = win.media.get(str(vid)) or mw.probe(str(vid))
+    win._add_to_timeline(str(vid))
+    assert win.project.clips[-1].brand == "outro" and win.project.clips[-2].brand == "", "neuer Clip gehört vor das Outro"
+    win.apply_brand(_kit156, "remove")
+    assert len(win.project.clips) == _n156 + 1 and all(c.brand == "" for c in win.project.clips), [c.brand for c in win.project.clips]
+    win.project.clips.pop()
+finally:
+    _QMB156.information = _ki156
+no_errors("1.5.6: Marken-Vorlage")
+print("OK  1.5.6: Marken-Vorlage")
 no_errors("1.5.1: Mehrfachauswahl")
 print("OK  1.5.1: Mehrfachauswahl")
 print("Signal-Prüfung OK")

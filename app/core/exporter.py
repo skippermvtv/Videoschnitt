@@ -362,8 +362,13 @@ def _watermark(project: Project, graph: list[str], cur: str, W: int, fps) -> str
     return "vwm"
 
 
-def _layout_chain(i: int, W: int, H: int, mode: str) -> str:
+def _layout_chain(i: int, W: int, H: int, mode: str, c: Clip | None = None) -> str:
     src, dst = f"c{i}s", f"l{i}"
+    if mode == "fill" and c is not None and not c.is_image and any(isinstance(k, dict) for k in (c.reframe or [])):
+        keys = [k for k in c.reframe if isinstance(k, dict)]
+        px = _interp(keys, "x", c.length, False)                      # −100 … 100: Fenster ganz links … ganz rechts
+        return (f"[{src}]scale={W}:{H}:force_original_aspect_ratio=increase,"
+                f"crop={W}:{H}:x='(iw-{W})/2*(1+({px})/100)':y='(ih-{H})/2',setsar=1[{dst}]")
     if mode == "fill":
         return (f"[{src}]scale={W}:{H}:force_original_aspect_ratio=increase,"
                 f"crop={W}:{H},setsar=1[{dst}]")
@@ -588,7 +593,7 @@ def build_command(project: Project, out_path: str, *, draft: bool = False,
         v += f"setpts=(PTS-STARTPTS)/{sp:.4f},fps={fps},tpad=stop_mode=clone:stop=3,trim=end_frame={frame_n[i]}[c{i}r]"
         graph.append(v)
         graph.append(f"[c{i}r]{_transform_chain(c) or 'null'}[c{i}s]")
-        graph.append(_layout_chain(i, W, H, layout))
+        graph.append(_layout_chain(i, W, H, layout, c))
         motion = _motion_chain(c, W, H)
         src = f"l{i}"
         if motion:
