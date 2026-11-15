@@ -166,6 +166,26 @@ def _mean_luma(png: Path) -> float:
     return sum(r.stdout) / len(r.stdout) if r.stdout else -1.0
 
 
+def _rmtree(path: Path, tries: int = 8) -> None:
+    """Ordner löschen; unter Windows halten Virenscanner oder gerade beendete Programme Dateien kurz fest – dann ein paar Mal erneut versuchen."""
+    for k in range(tries):
+        shutil.rmtree(path, ignore_errors=True)
+        if not Path(path).exists():
+            return
+        time.sleep(0.25 * (k + 1))
+
+
+def _unlink(path: Path, tries: int = 8) -> None:
+    for k in range(tries):
+        try:
+            path.unlink()
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            time.sleep(0.25 * (k + 1))
+
+
 def _run_tool(cmd: list[str], total: int, out_dir: Path, cancelled: Callable[[], bool] | None,
               on_count: Callable[[int], None] | None, cwd: Path | None) -> None:
     """Startet das Vergrößerungsprogramm und beobachtet den Ausgabeordner (Fortschritt = fertige Bilder)."""
@@ -191,7 +211,7 @@ def _run_tool(cmd: list[str], total: int, out_dir: Path, cancelled: Callable[[],
             raise UpscaleError(f"Das Vergrößerungsprogramm hat nur {done} von {total} Bildern geschafft (Code {proc.returncode}). "
                                "Meist hilft ein aktueller Grafikkartentreiber (Vulkan nötig)." + (f" Meldung: {tail}" if tail else ""))
     finally:
-        shutil.rmtree(log.parent, ignore_errors=True)
+        _rmtree(log.parent)
 
 
 def output_path(src: str, in_pt: float, out_pt: float, target_height: int, model_key: str) -> Path:
@@ -291,8 +311,8 @@ def upscale_range(src: str, in_pt: float, out_pt: float, target_height: int, out
                 raise UpscaleError("Das vergrößerte Stück konnte nicht gespeichert werden. " + (r.stderr or "")[-200:])
             parts.append(pf)
             done_frames += len(got)
-            shutil.rmtree(din, ignore_errors=True)                       # Platz sofort wieder freigeben
-            shutil.rmtree(dout, ignore_errors=True)
+            _rmtree(din, 3)                                              # Platz sofort wieder freigeben
+            _rmtree(dout, 3)
         prog(0.98, "Stücke werden verbunden, Ton wird hinzugefügt …")
         lst = work / "list.txt"
         lst.write_text("".join("file '" + p.as_posix().replace("'", "'\\''") + "'\n" for p in parts), encoding="utf-8")
@@ -305,13 +325,10 @@ def upscale_range(src: str, in_pt: float, out_pt: float, target_height: int, out
             raise UpscaleError("Die Stücke konnten nicht verbunden werden. " + (r.stderr or "")[-200:])
         os.replace(part, out_file)
     except BaseException:
-        try:
-            part.unlink()
-        except OSError:
-            pass
+        _unlink(part)
         raise
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        _rmtree(work)
     prog(1.0, "Fertig")
     return out_file
 
