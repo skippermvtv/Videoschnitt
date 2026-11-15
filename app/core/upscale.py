@@ -258,7 +258,7 @@ def upscale_range(src: str, in_pt: float, out_pt: float, target_height: int, out
             din.mkdir()
             dout.mkdir()
             t0 = in_pt + first / fps
-            prog(done_frames / total_frames, f"Stück {ci + 1} von {len(chunks)}: Bilder lesen …")
+            prog(min(0.97, done_frames / total_frames), f"Stück {ci + 1} von {len(chunks)}: Bilder lesen …")
             r = subprocess.run([ff, "-v", "error", "-y", "-ss", f"{t0:.4f}", "-i", src, "-an", "-vf", f"fps={fps:.6f}", "-frames:v", str(n),
                                 "-start_number", "1", "-compression_level", "1", str(din / "%06d.png")],
                                capture_output=True, text=True, creationflags=_NOWINDOW)
@@ -273,7 +273,7 @@ def upscale_range(src: str, in_pt: float, out_pt: float, target_height: int, out
                 elapsed = max(0.1, time.time() - t_start)
                 rate = (base + c) / elapsed
                 left = (total_frames - base - c) / max(0.01, rate)
-                prog((base + c) / total_frames, f"Stück {ci + 1} von {len(chunks)}: Bild {c} von {n} – noch etwa {left / 60:.0f} min "
+                prog(min(0.97, (base + c) / total_frames), f"Stück {ci + 1} von {len(chunks)}: Bild {c} von {n} – noch etwa {left / 60:.0f} min "
                                                 f"({rate:.1f} Bilder/s)")
 
             _run_tool(cmd, len(got), dout, cancelled, on_count, cwd)
