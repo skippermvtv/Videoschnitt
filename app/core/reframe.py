@@ -24,8 +24,8 @@ MAX_KEYS = 24
 MAX_SECONDS = 600.0                # längere Clips werden nur bis hierhin ausgewertet (Rest bleibt in der Mitte)
 STYLES = {                         # Name: (Totzone in Bildbreiten, größte Geschwindigkeit in Bildbreiten pro Sekunde, Glättung)
     "ruhig": (0.12, 0.10, 0.85),
-    "normal": (0.07, 0.22, 0.70),
-    "lebhaft": (0.03, 0.45, 0.50),
+    "normal": (0.04, 0.30, 0.50),
+    "lebhaft": (0.02, 0.50, 0.35),
 }
 DEFAULT_STYLE = "normal"
 
@@ -168,9 +168,10 @@ def camera_path(centers, win: float, fps: float, style: str = DEFAULT_STYLE):
     step = vmax / fps
     for target in med[1:]:
         target = min(hi, max(lo, target))
-        if abs(target - cam) > dead:
-            want = cam + (target - cam) * (1.0 - smooth)
-            delta = max(-step, min(step, want - cam))
+        err = target - cam
+        if abs(err) > dead:
+            gap = err - (dead * 0.5 if err > 0 else -dead * 0.5)       # bis knapp in die Mitte der Totzone nachführen
+            delta = max(-step, min(step, gap * (1.0 - smooth)))
             cam += delta
         out.append(min(hi, max(lo, cam)))
     return out

@@ -43,7 +43,7 @@ cen = reframe.best_centers(sc, 0.3)
 check(abs(cen[0] - 0.73) < 0.2 and abs(cen[1] - 0.13) < 0.2 and cen[2] == 0.5, cen)
 
 # Kamerafahrt: Totzone, begrenzte Geschwindigkeit, Grenzen
-path = reframe.camera_path([0.5] * 10 + [0.55] * 10, 0.3, 5.0, "normal")
+path = reframe.camera_path([0.5] * 10 + [0.53] * 10, 0.3, 5.0, "normal")
 check(max(path) - min(path) < 1e-9 and abs(path[0] - 0.5) < 1e-9, "kleine Abweichung bleibt in der Totzone")
 path = reframe.camera_path([0.2] * 5 + [0.8] * 40, 0.3, 5.0, "normal")
 step = max(abs(b - a) for a, b in zip(path, path[1:]))
@@ -130,7 +130,7 @@ check(oi.width < oi.height, (oi.width, oi.height))
 g = frames.read_gray(str(out), 2.0, oi.width, oi.height)
 # Der helle Block liegt im Ausschnitt: in jedem Bild ein heller Streifen, nie ganz am Rand abgeschnitten
 bright = [(f > 200).sum() for f in g]
-check(min(bright) > 0.04 * g[0].size, f"Block verlässt den Ausschnitt: {bright}")
+check(min(bright) > 0.05 * g[0].size, f"Block verlässt den Ausschnitt: {bright}")
 # ohne Reframe (Mitte): am Anfang und Ende ist der Block nicht zu sehen
 p_mid = copy.deepcopy(p)
 p_mid.clips[0].reframe = []
